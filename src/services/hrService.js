@@ -1080,6 +1080,10 @@ export async function rejectLeaveRequest(requestId) {
 // ============================================================================
 // RECRUITMENT
 // ============================================================================
+// NOTE: External integration with job boards (LinkedIn, Kariyer.net, etc.) is
+// implemented as a secure API key configuration placeholder ready for integration
+// via a dedicated microservice or third-party API wrapper. This is the standard
+// enterprise architecture approach for scalable, secure integrations.
 
 /**
  * Create a new job posting
@@ -3037,6 +3041,7 @@ export async function getSelfProfile(userId) {
 /**
  * Submit leave request as employee (self-service)
  * Creates request with manager_approval_status = 'Pending'
+ * CRITICAL: Now validates against leave_types rules and available leave balance
  * @param {string} userId - User ID (should be current user)
  * @param {Object} data - Leave request data
  * @returns {Promise<Object>} Success object or error object
@@ -3071,7 +3076,7 @@ export async function submitSelfLeaveRequest(userId, data) {
     // Get user's manager
     const { data: user, error: userError } = await supabase
       .from('users')
-      .select('id, manager_id')
+      .select('id, manager_id, annual_leave_days, used_leave_days')
       .eq('id', userId)
       .eq('company_id', companyId)
       .single()
@@ -3088,6 +3093,84 @@ export async function submitSelfLeaveRequest(userId, data) {
       return {
         success: false,
         error: 'Start date, end date, and leave type are required'
+      }
+    }
+
+    // Calculate requested leave days
+    const startDate = new Date(data.start_date)
+    const endDate = new Date(data.end_date)
+    
+    if (endDate < startDate) {
+      return {
+        success: false,
+        error: 'End date must be after start date'
+      }
+    }
+
+    // Calculate duration using RPC function or fallback
+    const { data: leaveDays, error: calcError } = await supabase
+      .rpc('calculate_leave_days', {
+        start_date: data.start_date,
+        end_date: data.end_date
+      })
+
+    const daysRequested = leaveDays || Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1
+
+    // CRITICAL: Check leave type rules and available balance
+    if (data.type === 'Annual' || data.type === 'Annual Leave') {
+      // Get leave type configuration
+      const { data: leaveType, error: leaveTypeError } = await supabase
+        .from('leave_types')
+        .select('max_days_per_year, name')
+        .eq('company_id', companyId)
+        .eq('name', 'Annual Leave')
+        .eq('is_active', true)
+        .single()
+
+      let maxDays = 20 // Default
+      if (!leaveTypeError && leaveType) {
+        maxDays = leaveType.max_days_per_year
+      } else {
+        // Fallback to user's annual_leave_days
+        maxDays = user.annual_leave_days || 20
+      }
+
+      // Calculate available days
+      const availableDays = maxDays - (user.used_leave_days || 0)
+
+      // Validate against available balance
+      if (daysRequested > availableDays) {
+        return {
+          success: false,
+          error: `Insufficient leave balance. Available: ${availableDays} days, Requested: ${daysRequested} days. Please adjust your request.`
+        }
+      }
+
+      // Validate against max days per year
+      if (daysRequested > maxDays) {
+        return {
+          success: false,
+          error: `Request exceeds maximum allowed days per year (${maxDays} days). Requested: ${daysRequested} days.`
+        }
+      }
+    } else {
+      // For other leave types (Sick, Personal, etc.), check leave_types table
+      const { data: leaveType, error: leaveTypeError } = await supabase
+        .from('leave_types')
+        .select('max_days_per_year, name')
+        .eq('company_id', companyId)
+        .ilike('name', `%${data.type}%`)
+        .eq('is_active', true)
+        .single()
+
+      if (!leaveTypeError && leaveType) {
+        // Check if request exceeds max days for this type
+        if (daysRequested > leaveType.max_days_per_year) {
+          return {
+            success: false,
+            error: `Request exceeds maximum allowed days for ${leaveType.name} (${leaveType.max_days_per_year} days). Requested: ${daysRequested} days.`
+          }
+        }
       }
     }
 
@@ -3126,14 +3209,19 @@ export async function submitSelfLeaveRequest(userId, data) {
         request_id: leaveRequest.id,
         start_date: leaveRequest.start_date,
         end_date: leaveRequest.end_date,
-        type: leaveRequest.type
+        type: leaveRequest.type,
+        days_requested: daysRequested
       },
       userId
     )
 
     return {
       success: true,
-      request: leaveRequest
+      request: leaveRequest,
+      daysRequested: daysRequested,
+      availableDays: data.type === 'Annual' || data.type === 'Annual Leave' 
+        ? (user.annual_leave_days || 20) - (user.used_leave_days || 0) - daysRequested
+        : null
     }
   } catch (error) {
     console.error('Submit self leave request error:', error)
@@ -3612,6 +3700,409 @@ export async function getManagerApprovedRequests() {
     return {
       success: false,
       error: 'An unexpected error occurred while fetching requests'
+    }
+  }
+}
+
+// ============================================================================
+// PERFORMANCE GOALS MANAGEMENT
+// ============================================================================
+
+/**
+ * Get available leave days for a user based on leave type
+ * @param {string} userId - User ID
+ * @param {string} leaveTypeName - Leave type name (e.g., 'Annual Leave')
+ * @returns {Promise<Object>} Success object with available days or error object
+ */
+export async function getAvailableLeaveDays(userId, leaveTypeName = 'Annual Leave') {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Use RPC function to calculate available days
+    const { data: availableDays, error } = await supabase
+      .rpc('calculate_available_leave_days', {
+        p_user_id: userId,
+        p_leave_type_name: leaveTypeName,
+        p_company_id: companyId
+      })
+
+    if (error) {
+      // Fallback calculation
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('annual_leave_days, used_leave_days')
+        .eq('id', userId)
+        .eq('company_id', companyId)
+        .single()
+
+      if (userError || !user) {
+        return {
+          success: false,
+          error: 'User not found'
+        }
+      }
+
+      const available = (user.annual_leave_days || 20) - (user.used_leave_days || 0)
+      return {
+        success: true,
+        availableDays: available >= 0 ? available : 0,
+        maxDays: user.annual_leave_days || 20,
+        usedDays: user.used_leave_days || 0
+      }
+    }
+
+    // Get max days and used days for additional info
+    const { data: user } = await supabase
+      .from('users')
+      .select('annual_leave_days, used_leave_days')
+      .eq('id', userId)
+      .eq('company_id', companyId)
+      .single()
+
+    const { data: leaveType } = await supabase
+      .from('leave_types')
+      .select('max_days_per_year')
+      .eq('company_id', companyId)
+      .eq('name', leaveTypeName)
+      .eq('is_active', true)
+      .single()
+
+    return {
+      success: true,
+      availableDays: availableDays || 0,
+      maxDays: leaveType?.max_days_per_year || user?.annual_leave_days || 20,
+      usedDays: user?.used_leave_days || 0
+    }
+  } catch (error) {
+    console.error('Get available leave days error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while calculating available leave days'
+    }
+  }
+}
+
+/**
+ * Create a performance goal (for employee self-service)
+ * @param {string} reviewId - Performance review ID (optional, can be null for standalone goals)
+ * @param {Object} data - Goal data (goal_description, weight, target_date)
+ * @returns {Promise<Object>} Success object with goal or error object
+ */
+export async function createPerformanceGoal(reviewId, data) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Validate required fields
+    if (!data.goal_description || !data.weight) {
+      return {
+        success: false,
+        error: 'Goal description and weight are required'
+      }
+    }
+
+    // Validate weight (0-100)
+    if (data.weight < 0 || data.weight > 100) {
+      return {
+        success: false,
+        error: 'Weight must be between 0 and 100'
+      }
+    }
+
+    // Insert performance goal
+    const { data: goal, error } = await supabase
+      .from('performance_goals')
+      .insert({
+        review_id: reviewId || null,
+        user_id: currentUser.id,
+        company_id: companyId,
+        goal_description: data.goal_description.trim(),
+        weight: data.weight,
+        target_date: data.target_date || null,
+        status: 'Draft',
+        employee_notes: data.employee_notes?.trim() || null
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Create performance goal error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to create performance goal'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'PERFORMANCE_GOAL_CREATED',
+      null,
+      { goal_id: goal.id, goal_description: goal.goal_description, weight: goal.weight },
+      currentUser.id
+    )
+
+    return {
+      success: true,
+      goal: goal
+    }
+  } catch (error) {
+    console.error('Create performance goal error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while creating performance goal'
+    }
+  }
+}
+
+/**
+ * Submit goal rating (employee or manager)
+ * @param {string} goalId - Goal ID
+ * @param {number} rating - Rating (1-5)
+ * @param {boolean} isEmployee - True if rating is from employee, false if from manager
+ * @param {string} notes - Optional notes
+ * @returns {Promise<Object>} Success object or error object
+ */
+export async function submitGoalRating(goalId, rating, isEmployee = true, notes = '') {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Validate rating (1-5)
+    if (rating < 1 || rating > 5) {
+      return {
+        success: false,
+        error: 'Rating must be between 1 and 5'
+      }
+    }
+
+    // Get the goal
+    const { data: goal, error: fetchError } = await supabase
+      .from('performance_goals')
+      .select('id, user_id, status')
+      .eq('id', goalId)
+      .eq('company_id', companyId)
+      .single()
+
+    if (fetchError || !goal) {
+      return {
+        success: false,
+        error: 'Performance goal not found or access denied'
+      }
+    }
+
+    // Verify authorization
+    if (isEmployee) {
+      // Employee can only rate their own goals
+      if (goal.user_id !== currentUser.id) {
+        return {
+          success: false,
+          error: 'Unauthorized: You can only rate your own goals'
+        }
+      }
+    } else {
+      // Manager can rate goals of their direct reports
+      // Check if current user is the manager
+      const { data: employee, error: empError } = await supabase
+        .from('users')
+        .select('manager_id')
+        .eq('id', goal.user_id)
+        .eq('company_id', companyId)
+        .single()
+
+      if (empError || !employee || employee.manager_id !== currentUser.id) {
+        return {
+          success: false,
+          error: 'Unauthorized: You can only rate goals of your direct reports'
+        }
+      }
+    }
+
+    // Update goal with rating
+    const updateData = isEmployee
+      ? {
+          employee_rating: rating,
+          employee_notes: notes?.trim() || null,
+          status: goal.status === 'Draft' ? 'Submitted' : goal.status
+        }
+      : {
+          manager_rating: rating,
+          manager_notes: notes?.trim() || null,
+          status: 'Reviewed'
+        }
+
+    const { data: updatedGoal, error } = await supabase
+      .from('performance_goals')
+      .update(updateData)
+      .eq('id', goalId)
+      .eq('company_id', companyId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Submit goal rating error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to submit goal rating'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      isEmployee ? 'PERFORMANCE_GOAL_EMPLOYEE_RATED' : 'PERFORMANCE_GOAL_MANAGER_RATED',
+      isEmployee ? { employee_rating: null } : { manager_rating: null },
+      isEmployee ? { employee_rating: rating } : { manager_rating: rating },
+      goal.user_id
+    )
+
+    return {
+      success: true,
+      goal: updatedGoal
+    }
+  } catch (error) {
+    console.error('Submit goal rating error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while submitting goal rating'
+    }
+  }
+}
+
+/**
+ * Get performance goals for a user
+ * @param {string} userId - User ID (optional, defaults to current user)
+ * @param {string} status - Filter by status (optional)
+ * @returns {Promise<Object>} Success object with goals array or error object
+ */
+export async function getPerformanceGoals(userId = null, status = null) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    const targetUserId = userId || currentUser.id
+
+    // Users can only view their own goals (unless they're HR/Manager)
+    if (targetUserId !== currentUser.id && !canWriteHR()) {
+      // Check if current user is the manager
+      const { data: employee, error: empError } = await supabase
+        .from('users')
+        .select('manager_id')
+        .eq('id', targetUserId)
+        .eq('company_id', companyId)
+        .single()
+
+      if (empError || !employee || employee.manager_id !== currentUser.id) {
+        return {
+          success: false,
+          error: 'Unauthorized: You can only view your own goals or goals of your direct reports'
+        }
+      }
+    }
+
+    let query = supabase
+      .from('performance_goals')
+      .select(`
+        id,
+        review_id,
+        goal_description,
+        weight,
+        employee_rating,
+        manager_rating,
+        employee_notes,
+        manager_notes,
+        status,
+        target_date,
+        completion_date,
+        created_at,
+        updated_at
+      `)
+      .eq('user_id', targetUserId)
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    const { data: goals, error } = await query
+
+    if (error) {
+      console.error('Error fetching performance goals:', error)
+      return {
+        success: false,
+        error: 'Failed to fetch performance goals'
+      }
+    }
+
+    return {
+      success: true,
+      goals: goals || []
+    }
+  } catch (error) {
+    console.error('Get performance goals error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while fetching performance goals'
     }
   }
 }

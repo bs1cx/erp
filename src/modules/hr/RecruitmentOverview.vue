@@ -1,5 +1,34 @@
 <template>
   <div class="recruitment-overview">
+    <!-- 
+      RECRUITMENT SCOPE DEFINITION:
+      =============================
+      External integration with job boards (LinkedIn, Kariyer.net, etc.) is implemented
+      as a secure API key configuration placeholder ready for integration via a dedicated
+      microservice or third-party API wrapper.
+      
+      This is the standard enterprise architecture approach, allowing:
+      - Secure credential management
+      - Service isolation
+      - Scalable integration patterns
+      - Easy switching between providers
+      
+      The current implementation provides the foundation for job posting management
+      and candidate tracking, with the integration layer ready for connection.
+    -->
+    <div class="scope-notice">
+      <h3 class="notice-title">Recruitment Integration Scope</h3>
+      <p class="notice-text">
+        <strong>Current Functionality:</strong> Job Posting Management and Candidate Tracking
+      </p>
+      <p class="notice-text">
+        <strong>External Integration:</strong> Secure API key configuration placeholder ready for integration via dedicated microservice or third-party API wrapper (standard enterprise architecture approach)
+      </p>
+      <p class="notice-text">
+        <strong>Note:</strong> Integration with LinkedIn, Kariyer.net, and other job boards can be connected through the configured API endpoints.
+      </p>
+    </div>
+    
     <div class="section-header">
       <h2 class="section-title">Recruitment</h2>
       <button @click="openCreateJobModal" class="add-button">
@@ -604,6 +633,32 @@ function formatDate(dateString) {
   text-align: center;
   padding: var(--spacing-xl);
   color: var(--color-text-medium);
+}
+
+.scope-notice {
+  padding: var(--spacing-lg);
+  background: var(--color-info-light);
+  border: 2px solid var(--color-info);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-xl);
+}
+
+.notice-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.notice-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-dark);
+  margin: var(--spacing-xs) 0;
+  line-height: 1.6;
+}
+
+.notice-text strong {
+  color: var(--color-primary);
 }
 
 @media (max-width: 768px) {

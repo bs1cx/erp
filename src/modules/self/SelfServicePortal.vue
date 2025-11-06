@@ -33,6 +33,12 @@
       >
         Payslips
       </button>
+      <button
+        @click="activeTab = 'goals'"
+        :class="['tab-button', { active: activeTab === 'goals' }]"
+      >
+        My Goals
+      </button>
     </div>
 
     <!-- Profile Tab -->
@@ -150,6 +156,82 @@
       </div>
     </div>
 
+    <!-- My Goals Tab -->
+    <div v-if="activeTab === 'goals'" class="portal-content">
+      <div class="content-section">
+        <div class="section-header-inline">
+          <h2 class="section-title">My Performance Goals</h2>
+          <button @click="openGoalModal" class="primary-button">
+            Add Goal
+          </button>
+        </div>
+
+        <div v-if="loadingGoals" class="loading-state">
+          Loading goals...
+        </div>
+
+        <div v-else-if="performanceGoals.length === 0" class="empty-state">
+          No performance goals found. Create your first goal to get started.
+        </div>
+
+        <div v-else class="goals-list">
+          <div
+            v-for="goal in performanceGoals"
+            :key="goal.id"
+            class="goal-card"
+          >
+            <div class="goal-header">
+              <div class="goal-info">
+                <h3 class="goal-description">{{ goal.goal_description }}</h3>
+                <div class="goal-meta">
+                  <span class="goal-weight">Weight: {{ goal.weight }}%</span>
+                  <span class="goal-status" :class="getStatusClass(goal.status)">
+                    {{ goal.status }}
+                  </span>
+                  <span v-if="goal.target_date" class="goal-date">
+                    Target: {{ formatDate(goal.target_date) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="goal-ratings">
+              <div class="rating-section">
+                <label>My Rating:</label>
+                <div class="rating-display">
+                  <span v-if="goal.employee_rating" class="rating-value">
+                    {{ goal.employee_rating }}/5
+                  </span>
+                  <span v-else class="rating-pending">Not rated</span>
+                  <button
+                    v-if="!goal.employee_rating"
+                    @click="openRatingModal(goal.id, true)"
+                    class="rate-button"
+                  >
+                    Rate
+                  </button>
+                </div>
+              </div>
+              <div class="rating-section">
+                <label>Manager Rating:</label>
+                <div class="rating-display">
+                  <span v-if="goal.manager_rating" class="rating-value">
+                    {{ goal.manager_rating }}/5
+                  </span>
+                  <span v-else class="rating-pending">Pending</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="goal.employee_notes" class="goal-notes">
+              <strong>My Notes:</strong> {{ goal.employee_notes }}
+            </div>
+            <div v-if="goal.manager_notes" class="goal-notes">
+              <strong>Manager Notes:</strong> {{ goal.manager_notes }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Payslips Tab -->
     <div v-if="activeTab === 'payslips'" class="portal-content">
       <div class="content-section">
@@ -227,6 +309,16 @@
         </div>
 
         <form @submit.prevent="handleSubmitLeave" class="leave-form">
+          <!-- Available Leave Days Display -->
+          <div v-if="availableLeaveDays !== null" class="leave-balance-info">
+            <div class="balance-display">
+              <span class="balance-label">Available Leave Days:</span>
+              <span class="balance-value" :class="{ 'balance-low': availableLeaveDays < 5 }">
+                {{ availableLeaveDays }} days
+              </span>
+            </div>
+          </div>
+
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Start Date *</label>
@@ -358,22 +450,32 @@ import {
   submitSelfLeaveRequest,
   downloadPayslip,
   getEmployeePayrollHistory,
-  updateEmployeeProfile
+  updateEmployeeProfile,
+  getAvailableLeaveDays,
+  createPerformanceGoal,
+  submitGoalRating,
+  getPerformanceGoals
 } from '../../services/hrService'
 
 const activeTab = ref('profile')
 const profile = ref(null)
 const myLeaveRequests = ref([])
 const payslips = ref([])
+const performanceGoals = ref([])
+const availableLeaveDays = ref(null)
 const loadingProfile = ref(false)
 const loadingLeave = ref(false)
 const loadingPayslips = ref(false)
+const loadingGoals = ref(false)
 const loadingSubmit = ref(false)
 const loadingUpdate = ref(false)
+const loadingGoalSubmit = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const showLeaveModal = ref(false)
 const showContactModal = ref(false)
+const showGoalModal = ref(false)
+const showRatingModal = ref(false)
 
 const leaveForm = ref({
   start_date: '',
@@ -415,6 +517,8 @@ onMounted(() => {
     loadProfile()
     loadMyLeaveRequests()
     loadPayslips()
+    loadPerformanceGoals()
+    loadAvailableLeaveDays()
   }
 })
 
@@ -491,6 +595,19 @@ async function loadPayslips() {
   }
 }
 
+async function loadAvailableLeaveDays() {
+  if (!currentUserId.value) return
+  
+  try {
+    const result = await getAvailableLeaveDays(currentUserId.value, 'Annual Leave')
+    if (result.success) {
+      availableLeaveDays.value = result.availableDays
+    }
+  } catch (error) {
+    console.error('Error loading available leave days:', error)
+  }
+}
+
 function openSubmitLeaveModal() {
   leaveForm.value = {
     start_date: '',
@@ -498,6 +615,7 @@ function openSubmitLeaveModal() {
     type: '',
     reason: ''
   }
+  loadAvailableLeaveDays() // Refresh available days
   showLeaveModal.value = true
 }
 
@@ -688,6 +806,103 @@ function getApprovalClass(status) {
     'Rejected': 'status-danger'
   }
   return statusMap[status] || 'status-default'
+}
+
+async function loadPerformanceGoals() {
+  if (!currentUserId.value) return
+  
+  loadingGoals.value = true
+  try {
+    const result = await getPerformanceGoals(currentUserId.value)
+    if (result.success) {
+      performanceGoals.value = result.goals || []
+    }
+  } catch (error) {
+    console.error('Error loading performance goals:', error)
+  } finally {
+    loadingGoals.value = false
+  }
+}
+
+function openGoalModal() {
+  goalForm.value = {
+    goal_description: '',
+    weight: 0,
+    target_date: '',
+    employee_notes: ''
+  }
+  showGoalModal.value = true
+}
+
+function closeGoalModal() {
+  showGoalModal.value = false
+}
+
+async function handleCreateGoal() {
+  if (!currentUserId.value) return
+  
+  loadingGoalSubmit.value = true
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    const result = await createPerformanceGoal(null, goalForm.value)
+    if (result.success) {
+      successMessage.value = 'Performance goal created successfully!'
+      closeGoalModal()
+      await loadPerformanceGoals()
+    } else {
+      errorMessage.value = result.error || 'Failed to create performance goal'
+    }
+  } catch (error) {
+    console.error('Error creating performance goal:', error)
+    errorMessage.value = 'An unexpected error occurred'
+  } finally {
+    loadingGoalSubmit.value = false
+  }
+}
+
+function openRatingModal(goalId, isEmployee) {
+  ratingForm.value = {
+    goalId: goalId,
+    rating: 1,
+    notes: '',
+    isEmployee: isEmployee
+  }
+  showRatingModal.value = true
+}
+
+function closeRatingModal() {
+  showRatingModal.value = false
+}
+
+async function handleSubmitRating() {
+  if (!ratingForm.value.goalId) return
+  
+  loadingGoalSubmit.value = true
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    const result = await submitGoalRating(
+      ratingForm.value.goalId,
+      ratingForm.value.rating,
+      ratingForm.value.isEmployee,
+      ratingForm.value.notes
+    )
+    if (result.success) {
+      successMessage.value = 'Rating submitted successfully!'
+      closeRatingModal()
+      await loadPerformanceGoals()
+    } else {
+      errorMessage.value = result.error || 'Failed to submit rating'
+    }
+  } catch (error) {
+    console.error('Error submitting rating:', error)
+    errorMessage.value = 'An unexpected error occurred'
+  } finally {
+    loadingGoalSubmit.value = false
+  }
 }
 </script>
 
@@ -1181,9 +1396,40 @@ function getApprovalClass(status) {
   color: var(--color-text-medium);
 }
 
+.leave-balance-info {
+  padding: var(--spacing-md);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  margin-bottom: var(--spacing-lg);
+}
+
+.balance-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.balance-label {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-dark);
+}
+
+.balance-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.balance-value.balance-low {
+  color: var(--color-warning);
+}
+
 @media (max-width: 768px) {
   .profile-grid,
-  .form-row {
+  .form-row,
+  .goal-ratings {
     grid-template-columns: 1fr;
   }
   

@@ -27,7 +27,12 @@
 
     <!-- Manager-Approved Requests (HR Final Approval) -->
     <div class="requests-section">
-      <h3 class="subsection-title">Manager-Approved Requests (HR Final Approval)</h3>
+      <div class="section-header-inline">
+        <h3 class="subsection-title">Manager-Approved Requests (HR Final Approval)</h3>
+        <div class="leave-info-note">
+          <strong>Note:</strong> Leave requests are validated against leave type rules and available balance before submission.
+        </div>
+      </div>
       
       <div v-if="loading" class="loading-state">
         Loading leave requests...
@@ -923,6 +928,24 @@ function formatDate(dateString) {
   border-top: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
   color: var(--color-text-medium);
+}
+
+.section-header-inline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+}
+
+.leave-info-note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-medium);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
 }
 
 @media (max-width: 768px) {

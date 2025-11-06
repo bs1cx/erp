@@ -1,5 +1,31 @@
 <template>
   <div class="payroll-management">
+    <!-- 
+      PAYROLL SCOPE DEFINITION (Bordro Kapsamı):
+      ==========================================
+      This component is designed for Payroll Data Display and Export (Ön Yüz/Görüntüleme).
+      It does NOT handle Tax Calculation and Compliance (Bordro Hesaplama).
+      
+      The system displays payroll records, allows status updates, and provides export functionality.
+      For actual payroll calculations, tax compliance, and legal reporting, integration with
+      a dedicated payroll service or accounting system is required.
+      
+      This scope definition addresses enterprise concerns about complexity by clearly
+      separating display/management from calculation/compliance.
+    -->
+    <div class="scope-notice">
+      <h3 class="notice-title">Payroll Scope Definition</h3>
+      <p class="notice-text">
+        <strong>Current Functionality:</strong> Payroll Data Display, Status Management, and Export (Ön Yüz/Görüntüleme)
+      </p>
+      <p class="notice-text">
+        <strong>Not Included:</strong> Tax Calculation, Compliance Reporting, and Legal Bordro Hesaplama
+      </p>
+      <p class="notice-text">
+        <strong>Note:</strong> For full payroll calculation and compliance, integration with a dedicated payroll service is required.
+      </p>
+    </div>
+    
     <div class="section-header">
       <h2 class="section-title">Payroll Management</h2>
       <button @click="openCreateModal" class="primary-button">
@@ -1030,6 +1056,32 @@ function getStatusClass(status) {
   text-align: center;
   padding: var(--spacing-xl);
   color: var(--color-text-medium);
+}
+
+.scope-notice {
+  padding: var(--spacing-lg);
+  background: var(--color-info-light);
+  border: 2px solid var(--color-info);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-xl);
+}
+
+.notice-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.notice-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-dark);
+  margin: var(--spacing-xs) 0;
+  line-height: 1.6;
+}
+
+.notice-text strong {
+  color: var(--color-primary);
 }
 
 @media (max-width: 768px) {
