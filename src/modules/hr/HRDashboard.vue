@@ -77,6 +77,9 @@
         <button @click="activeSection = 'payroll'" class="action-button">
           <span class="action-label">Payroll & Benefits</span>
         </button>
+        <button @click="activeSection = 'planner'" class="action-button">
+          <span class="action-label">Planner</span>
+        </button>
       </div>
     </div>
 
@@ -111,6 +114,11 @@
       <div v-if="activeSection === 'payroll'" class="content-section">
         <PayrollManagement @updated="loadKPIs" />
       </div>
+
+      <!-- Planner Section -->
+      <div v-if="activeSection === 'planner'" class="content-section">
+        <HRPlanner @updated="loadKPIs" />
+      </div>
     </div>
   </div>
 </template>
@@ -124,6 +132,7 @@ import RecruitmentOverview from './RecruitmentOverview.vue'
 import PerformanceManagement from './PerformanceManagement.vue'
 import AuditLogView from './AuditLogView.vue'
 import PayrollManagement from './PayrollManagement.vue'
+import HRPlanner from './HRPlanner.vue'
 
 const userData = ref(null)
 const companyId = ref(null)

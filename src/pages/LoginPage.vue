@@ -68,6 +68,49 @@ import { login, setAuthToken } from '../services/authService'
 
 const router = useRouter()
 
+/**
+ * Get user's default route based on role and permissions (same logic as router guard)
+ */
+function getUserDefaultRoute() {
+  const userData = localStorage.getItem('user_data')
+  if (!userData) return null
+  
+  try {
+    const user = JSON.parse(userData)
+    const userRole = user.role
+    
+    // Check permissions if available (from job title roles)
+    const permissions = localStorage.getItem('user_permissions')
+    if (permissions) {
+      try {
+        const perms = JSON.parse(permissions)
+        
+        // Check module access based on permissions
+        if (perms.module_it_read || perms.access_it) return '/it'
+        if (perms.module_hr_read || perms.access_hr) return '/hr'
+        if (perms.module_finance_read || perms.access_finance) return '/finance'
+      } catch (error) {
+        console.error('Error parsing permissions:', error)
+      }
+    }
+    
+    // Fallback to role-based routing
+    const roleRoutes = {
+      'IT_ADMIN': '/it',
+      'HR_USER': '/hr',
+      'HR_MANAGER': '/hr',
+      'FINANCE_MANAGER': '/finance',
+      'FINANCE_USER': '/finance',
+      'EMPLOYEE': '/hr'
+    }
+    
+    return roleRoutes[userRole] || null
+  } catch (error) {
+    console.error('Error parsing user data:', error)
+    return null
+  }
+}
+
 const companyCode = ref('')
 const email = ref('')
 const password = ref('')
@@ -108,6 +151,7 @@ async function handleLogin() {
     const result = await login(companyCode.value.trim(), email.value.trim(), password.value)
 
     if (result.success) {
+      // CRITICAL: Store all data synchronously before navigation
       // Store authentication token
       if (result.token) {
         setAuthToken(result.token)
@@ -123,8 +167,31 @@ async function handleLogin() {
         }
       }
 
-      // Redirect to role-based default route
-      const defaultRoute = getDefaultRoute(result.user?.role)
+      // CRITICAL: Store all data synchronously (localStorage is synchronous)
+      // All localStorage operations are blocking, so data is immediately available
+      
+      // Get default route BEFORE storing data (using result data directly)
+      let defaultRoute = null
+      
+      // Check permissions from result first
+      if (result.user?.permissions) {
+        const perms = result.user.permissions
+        if (perms.module_it_read || perms.access_it) {
+          defaultRoute = '/it'
+        } else if (perms.module_hr_read || perms.access_hr) {
+          defaultRoute = '/hr'
+        } else if (perms.module_finance_read || perms.access_finance) {
+          defaultRoute = '/finance'
+        }
+      }
+      
+      // Fallback to role-based routing
+      if (!defaultRoute) {
+        defaultRoute = getDefaultRoute(result.user?.role)
+      }
+      
+      // Navigate immediately - router.push is synchronous
+      // The router guard will check localStorage which is already set above
       router.push(defaultRoute)
     } else {
       errorMessage.value = result.error || 'Login failed. Please check your credentials.'

@@ -2651,3 +2651,331 @@ export async function removeBenefit(benefitId) {
   }
 }
 
+// ============================================================================
+// HR CALENDAR/PLANNER
+// ============================================================================
+
+/**
+ * Create a calendar event
+ * @param {Object} data - Event data (title, description, start_datetime, end_datetime, etc.)
+ * @returns {Promise<Object>} Success object or error object
+ */
+export async function createCalendarEvent(data) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    if (!canWriteHR()) {
+      return {
+        success: false,
+        error: 'Unauthorized: Only HR Managers can create calendar events'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Validate required fields
+    if (!data.title || !data.start_datetime || !data.end_datetime) {
+      return {
+        success: false,
+        error: 'Title, start datetime, and end datetime are required'
+      }
+    }
+
+    // Insert calendar event
+    const { data: event, error } = await supabase
+      .from('hr_calendar_events')
+      .insert({
+        company_id: companyId,
+        title: data.title.trim(),
+        description: data.description?.trim() || null,
+        start_datetime: data.start_datetime,
+        end_datetime: data.end_datetime,
+        assigned_user_id: data.assigned_user_id || null,
+        event_type: data.event_type || 'General',
+        location: data.location?.trim() || null,
+        is_all_day: data.is_all_day || false,
+        recurrence_pattern: data.recurrence_pattern || 'None',
+        recurrence_end_date: data.recurrence_end_date || null,
+        created_by_user_id: currentUser.id
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Calendar event creation error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to create calendar event'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'CALENDAR_EVENT_CREATED',
+      null,
+      {
+        event_id: event.id,
+        title: event.title,
+        start_datetime: event.start_datetime
+      },
+      null
+    )
+
+    return {
+      success: true,
+      event: event
+    }
+  } catch (error) {
+    console.error('Create calendar event error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while creating calendar event'
+    }
+  }
+}
+
+/**
+ * Get calendar events for a specific period
+ * @param {string} startDate - Start date (ISO string)
+ * @param {string} endDate - End date (ISO string)
+ * @returns {Promise<Object>} Success object with events array or error object
+ */
+export async function getEventsForPeriod(startDate, endDate) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    if (!hasHRPermission()) {
+      return {
+        success: false,
+        error: 'Unauthorized: You do not have permission to view calendar events'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Fetch calendar events for the period
+    const { data: events, error } = await supabase
+      .from('hr_calendar_events')
+      .select(`
+        id,
+        title,
+        description,
+        start_datetime,
+        end_datetime,
+        assigned_user_id,
+        event_type,
+        location,
+        is_all_day,
+        recurrence_pattern,
+        recurrence_end_date,
+        created_at,
+        users:assigned_user_id(id, email, first_name, last_name),
+        creator:created_by_user_id(email)
+      `)
+      .eq('company_id', companyId)
+      .gte('start_datetime', startDate)
+      .lte('end_datetime', endDate)
+      .order('start_datetime', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching calendar events:', error)
+      return {
+        success: false,
+        error: 'Failed to fetch calendar events'
+      }
+    }
+
+    return {
+      success: true,
+      events: events || []
+    }
+  } catch (error) {
+    console.error('Get events for period error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while fetching calendar events'
+    }
+  }
+}
+
+/**
+ * Update a calendar event
+ * @param {string} eventId - Event ID
+ * @param {Object} data - Update data
+ * @returns {Promise<Object>} Success object or error object
+ */
+export async function updateCalendarEvent(eventId, data) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    if (!canWriteHR()) {
+      return {
+        success: false,
+        error: 'Unauthorized: Only HR Managers can update calendar events'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Build update object
+    const updateData = {}
+    if (data.title !== undefined) updateData.title = data.title.trim()
+    if (data.description !== undefined) updateData.description = data.description?.trim() || null
+    if (data.start_datetime !== undefined) updateData.start_datetime = data.start_datetime
+    if (data.end_datetime !== undefined) updateData.end_datetime = data.end_datetime
+    if (data.assigned_user_id !== undefined) updateData.assigned_user_id = data.assigned_user_id || null
+    if (data.event_type !== undefined) updateData.event_type = data.event_type
+    if (data.location !== undefined) updateData.location = data.location?.trim() || null
+    if (data.is_all_day !== undefined) updateData.is_all_day = data.is_all_day
+    if (data.recurrence_pattern !== undefined) updateData.recurrence_pattern = data.recurrence_pattern
+    if (data.recurrence_end_date !== undefined) updateData.recurrence_end_date = data.recurrence_end_date || null
+
+    // Update event
+    const { data: updatedEvent, error } = await supabase
+      .from('hr_calendar_events')
+      .update(updateData)
+      .eq('id', eventId)
+      .eq('company_id', companyId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Calendar event update error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to update calendar event'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'CALENDAR_EVENT_UPDATED',
+      null,
+      { event_id: eventId, ...updateData },
+      null
+    )
+
+    return {
+      success: true,
+      event: updatedEvent
+    }
+  } catch (error) {
+    console.error('Update calendar event error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while updating calendar event'
+    }
+  }
+}
+
+/**
+ * Delete a calendar event
+ * @param {string} eventId - Event ID
+ * @returns {Promise<Object>} Success object or error object
+ */
+export async function deleteCalendarEvent(eventId) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    if (!canWriteHR()) {
+      return {
+        success: false,
+        error: 'Unauthorized: Only HR Managers can delete calendar events'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Delete event
+    const { error } = await supabase
+      .from('hr_calendar_events')
+      .delete()
+      .eq('id', eventId)
+      .eq('company_id', companyId)
+
+    if (error) {
+      console.error('Calendar event deletion error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to delete calendar event'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'CALENDAR_EVENT_DELETED',
+      { event_id: eventId },
+      null,
+      null
+    )
+
+    return {
+      success: true
+    }
+  } catch (error) {
+    console.error('Delete calendar event error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while deleting calendar event'
+    }
+  }
+}
+

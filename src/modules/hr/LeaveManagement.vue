@@ -15,6 +15,16 @@
       {{ errorMessage }}
     </div>
 
+    <!-- HR Manager Actions -->
+    <div v-if="canManageLeave" class="hr-actions-section">
+      <h3 class="subsection-title">Manage Employee Leave</h3>
+      <div class="hr-actions-bar">
+        <button @click="openAdjustLeaveModal" class="action-button">
+          Adjust Leave Balance
+        </button>
+      </div>
+    </div>
+
     <!-- Pending Leave Requests -->
     <div class="requests-section">
       <h3 class="subsection-title">Pending Approval</h3>
@@ -35,7 +45,10 @@
         >
           <div class="request-header">
             <div class="request-info">
-              <div class="request-employee">{{ request.users?.email }}</div>
+              <div class="request-employee">
+                {{ getEmployeeName(request.users) }}
+                <span class="employee-email">{{ request.users?.email }}</span>
+              </div>
               <div class="request-meta">
                 <span class="request-type">{{ request.type }}</span>
                 <span class="request-date-range">
@@ -147,27 +160,132 @@
         </form>
       </div>
     </div>
+
+    <!-- Adjust Leave Balance Modal (HR Manager Only) -->
+    <div v-if="showAdjustModal && canManageLeave" class="modal-overlay" @click="closeAdjustModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>Adjust Employee Leave Balance</h3>
+          <button @click="closeAdjustModal" class="modal-close">×</button>
+        </div>
+
+        <form @submit.prevent="handleAdjustLeave" class="leave-form">
+          <div class="form-group">
+            <label class="form-label">Employee *</label>
+            <select
+              v-model="adjustForm.user_id"
+              class="form-select"
+              required
+              :disabled="loadingAdjust"
+            >
+              <option value="">Select Employee</option>
+              <option
+                v-for="employee in employees"
+                :key="employee.id"
+                :value="employee.id"
+              >
+                {{ employee.full_name || employee.email }}
+                <span v-if="employee.department"> - {{ employee.department }}</span>
+              </option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Annual Leave Days</label>
+              <input
+                v-model.number="adjustForm.annual_leave_days"
+                type="number"
+                min="0"
+                class="form-input"
+                :disabled="loadingAdjust"
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Used Leave Days</label>
+              <input
+                v-model.number="adjustForm.used_leave_days"
+                type="number"
+                min="0"
+                class="form-input"
+                :disabled="loadingAdjust"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <textarea
+              v-model="adjustForm.notes"
+              class="form-textarea"
+              rows="3"
+              placeholder="Reason for adjustment..."
+              :disabled="loadingAdjust"
+            ></textarea>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" @click="closeAdjustModal" class="cancel-button" :disabled="loadingAdjust">
+              Cancel
+            </button>
+            <button type="submit" class="submit-button" :disabled="loadingAdjust || !adjustForm.user_id">
+              <span v-if="loadingAdjust">Updating...</span>
+              <span v-else>Update Leave Balance</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { submitLeaveRequest, getPendingLeaveRequests, approveLeaveRequest, rejectLeaveRequest } from '../../services/hrService'
+import { 
+  submitLeaveRequest, 
+  getPendingLeaveRequests, 
+  approveLeaveRequest, 
+  rejectLeaveRequest,
+  updateEmployeeProfile,
+  getAllCompanyEmployees
+} from '../../services/hrService'
 
 const emit = defineEmits(['updated'])
 
 const pendingRequests = ref([])
+const employees = ref([])
 const loading = ref(false)
 const loadingSubmit = ref(false)
+const loadingAdjust = ref(false)
+const loadingEmployees = ref(false)
 const processingRequest = ref(null)
 const errorMessage = ref('')
 const successMessage = ref('')
 const showSubmitModal = ref(false)
+const showAdjustModal = ref(false)
 const leaveForm = ref({
   start_date: '',
   end_date: '',
   type: '',
   reason: ''
+})
+const adjustForm = ref({
+  user_id: '',
+  annual_leave_days: null,
+  used_leave_days: null,
+  notes: ''
+})
+
+const canManageLeave = computed(() => {
+  const permissions = localStorage.getItem('user_permissions')
+  if (!permissions) return false
+  try {
+    const perms = JSON.parse(permissions)
+    return perms.module_hr_write === true || perms.access_hr === true
+  } catch {
+    return false
+  }
 })
 
 const minDate = computed(() => {
@@ -183,6 +301,9 @@ const isLeaveFormValid = computed(() => {
 
 onMounted(() => {
   loadRequests()
+  if (canManageLeave.value) {
+    loadEmployees()
+  }
 })
 
 async function loadRequests() {
@@ -293,6 +414,86 @@ async function rejectRequest(requestId) {
   } finally {
     processingRequest.value = null
   }
+}
+
+async function loadEmployees() {
+  loadingEmployees.value = true
+  try {
+    const result = await getAllCompanyEmployees(1, 1000, {})
+    if (result.success) {
+      employees.value = result.employees || []
+    }
+  } catch (error) {
+    console.error('Error loading employees:', error)
+  } finally {
+    loadingEmployees.value = false
+  }
+}
+
+function openAdjustLeaveModal() {
+  adjustForm.value = {
+    user_id: '',
+    annual_leave_days: null,
+    used_leave_days: null,
+    notes: ''
+  }
+  showAdjustModal.value = true
+  if (employees.value.length === 0) {
+    loadEmployees()
+  }
+}
+
+function closeAdjustModal() {
+  showAdjustModal.value = false
+  adjustForm.value = {
+    user_id: '',
+    annual_leave_days: null,
+    used_leave_days: null,
+    notes: ''
+  }
+}
+
+async function handleAdjustLeave() {
+  loadingAdjust.value = true
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    const updateData = {}
+    if (adjustForm.value.annual_leave_days !== null) {
+      updateData.annual_leave_days = adjustForm.value.annual_leave_days
+    }
+    if (adjustForm.value.used_leave_days !== null) {
+      updateData.used_leave_days = adjustForm.value.used_leave_days
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      errorMessage.value = 'Please specify at least one leave value to update'
+      loadingAdjust.value = false
+      return
+    }
+
+    const result = await updateEmployeeProfile(adjustForm.value.user_id, updateData)
+    if (result.success) {
+      successMessage.value = 'Leave balance updated successfully!'
+      closeAdjustModal()
+      await loadRequests()
+      emit('updated')
+    } else {
+      errorMessage.value = result.error || 'Failed to update leave balance'
+    }
+  } catch (error) {
+    console.error('Error adjusting leave balance:', error)
+    errorMessage.value = 'An unexpected error occurred'
+  } finally {
+    loadingAdjust.value = false
+  }
+}
+
+function getEmployeeName(user) {
+  if (!user) return 'N/A'
+  const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim()
+  return fullName || user.email || 'N/A'
 }
 
 function formatDate(dateString) {
@@ -637,6 +838,48 @@ function formatDate(dateString) {
   text-align: center;
   padding: var(--spacing-xl);
   color: var(--color-text-medium);
+}
+
+.hr-actions-section {
+  margin-bottom: var(--spacing-xl);
+  padding: var(--spacing-lg);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.hr-actions-bar {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.action-button {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.action-button:hover {
+  background: var(--color-primary-dark);
+}
+
+.request-employee {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.employee-email {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-medium);
+  font-weight: normal;
 }
 
 @media (max-width: 768px) {
