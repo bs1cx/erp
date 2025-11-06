@@ -2979,3 +2979,640 @@ export async function deleteCalendarEvent(eventId) {
   }
 }
 
+// ============================================================================
+// SELF-SERVICE PORTAL
+// ============================================================================
+
+/**
+ * Get employee's own profile (self-service)
+ * @param {string} userId - User ID (should be current user)
+ * @returns {Promise<Object>} Success object with profile or error object
+ */
+export async function getSelfProfile(userId) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    // Users can only view their own profile
+    if (currentUser.id !== userId) {
+      return {
+        success: false,
+        error: 'Unauthorized: You can only view your own profile'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Fetch user profile
+    const result = await getEmployeeProfile(userId)
+    if (result.success) {
+      return {
+        success: true,
+        profile: result.employee
+      }
+    }
+
+    return result
+  } catch (error) {
+    console.error('Get self profile error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while fetching profile'
+    }
+  }
+}
+
+/**
+ * Submit leave request as employee (self-service)
+ * Creates request with manager_approval_status = 'Pending'
+ * @param {string} userId - User ID (should be current user)
+ * @param {Object} data - Leave request data
+ * @returns {Promise<Object>} Success object or error object
+ */
+export async function submitSelfLeaveRequest(userId, data) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    // Users can only submit requests for themselves
+    if (currentUser.id !== userId) {
+      return {
+        success: false,
+        error: 'Unauthorized: You can only submit leave requests for yourself'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Get user's manager
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, manager_id')
+      .eq('id', userId)
+      .eq('company_id', companyId)
+      .single()
+
+    if (userError || !user) {
+      return {
+        success: false,
+        error: 'User not found'
+      }
+    }
+
+    // Validate required fields
+    if (!data.start_date || !data.end_date || !data.type) {
+      return {
+        success: false,
+        error: 'Start date, end date, and leave type are required'
+      }
+    }
+
+    // Insert leave request with manager approval status
+    const { data: leaveRequest, error } = await supabase
+      .from('leave_requests')
+      .insert({
+        user_id: userId,
+        company_id: companyId,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        type: data.type.trim(),
+        reason: data.reason?.trim() || null,
+        status: 'Pending', // Overall status (pending HR approval)
+        manager_approval_status: 'Pending', // Manager approval status
+        manager_approval_user_id: user.manager_id || null // Will be set by manager
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Leave request submission error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to submit leave request'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'LEAVE_REQUEST_SUBMITTED',
+      null,
+      {
+        request_id: leaveRequest.id,
+        start_date: leaveRequest.start_date,
+        end_date: leaveRequest.end_date,
+        type: leaveRequest.type
+      },
+      userId
+    )
+
+    return {
+      success: true,
+      request: leaveRequest
+    }
+  } catch (error) {
+    console.error('Submit self leave request error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while submitting leave request'
+    }
+  }
+}
+
+/**
+ * Download payslip (mock function - prepares data for download)
+ * @param {string} userId - User ID (should be current user)
+ * @param {string} recordId - Payroll record ID
+ * @returns {Promise<Object>} Success object with payslip data or error object
+ */
+export async function downloadPayslip(userId, recordId) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    // Users can only download their own payslips
+    if (currentUser.id !== userId) {
+      return {
+        success: false,
+        error: 'Unauthorized: You can only download your own payslips'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Fetch payroll record
+    const { data: payrollRecord, error } = await supabase
+      .from('payroll_records')
+      .select(`
+        id,
+        period_start,
+        period_end,
+        gross_salary,
+        net_salary,
+        tax_amount,
+        contribution_amount,
+        deductions,
+        bonuses,
+        status,
+        payment_date,
+        payment_method,
+        notes
+      `)
+      .eq('id', recordId)
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .single()
+
+    if (error || !payrollRecord) {
+      return {
+        success: false,
+        error: 'Payslip not found or access denied'
+      }
+    }
+
+    // Get employee details
+    const { data: employee, error: empError } = await supabase
+      .from('users')
+      .select('id, email, first_name, last_name, department')
+      .eq('id', userId)
+      .single()
+
+    // Generate payslip content (mock - in production, generate PDF)
+    const payslipData = {
+      employee: {
+        name: `${employee?.first_name || ''} ${employee?.last_name || ''}`.trim() || employee?.email,
+        email: employee?.email,
+        department: employee?.department
+      },
+      payroll: payrollRecord,
+      generated_at: new Date().toISOString()
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'PAYSLIP_DOWNLOADED',
+      null,
+      { payroll_id: recordId, period_start: payrollRecord.period_start },
+      userId
+    )
+
+    return {
+      success: true,
+      payslip: payslipData
+    }
+  } catch (error) {
+    console.error('Download payslip error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while downloading payslip'
+    }
+  }
+}
+
+// ============================================================================
+// MANAGER APPROVAL WORKFLOW
+// ============================================================================
+
+/**
+ * Get pending leave requests for a manager to approve
+ * @param {string} managerId - Manager's user ID
+ * @returns {Promise<Object>} Success object with requests array or error object
+ */
+export async function getPendingRequestsForManager(managerId) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    // Verify current user is the manager
+    if (currentUser.id !== managerId) {
+      return {
+        success: false,
+        error: 'Unauthorized: You can only view your own pending approvals'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Fetch leave requests where manager_approval_status is 'Pending'
+    // and the requester's manager_id matches the managerId
+    const { data: requests, error } = await supabase
+      .from('leave_requests')
+      .select(`
+        id,
+        start_date,
+        end_date,
+        type,
+        reason,
+        status,
+        manager_approval_status,
+        created_at,
+        users:user_id(
+          id,
+          email,
+          first_name,
+          last_name,
+          department,
+          manager_id
+        )
+      `)
+      .eq('company_id', companyId)
+      .eq('manager_approval_status', 'Pending')
+      .eq('status', 'Pending')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching manager pending requests:', error)
+      return {
+        success: false,
+        error: 'Failed to fetch pending requests'
+      }
+    }
+
+    // Filter to only include requests from employees who report to this manager
+    const filteredRequests = (requests || []).filter(request => {
+      // Get the requester's manager_id
+      return request.users?.manager_id === managerId
+    })
+
+    return {
+      success: true,
+      requests: filteredRequests
+    }
+  } catch (error) {
+    console.error('Get pending requests for manager error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while fetching pending requests'
+    }
+  }
+}
+
+/**
+ * Approve leave request as manager
+ * Updates manager_approval_status, then request goes to HR for final approval
+ * @param {string} requestId - Leave request ID
+ * @param {string} notes - Optional approval notes
+ * @returns {Promise<Object>} Success object or error object
+ */
+export async function approveRequestAsManager(requestId, notes = '') {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Get the leave request
+    const { data: request, error: fetchError } = await supabase
+      .from('leave_requests')
+      .select(`
+        id,
+        user_id,
+        manager_approval_status,
+        status,
+        users:user_id(manager_id)
+      `)
+      .eq('id', requestId)
+      .eq('company_id', companyId)
+      .single()
+
+    if (fetchError || !request) {
+      return {
+        success: false,
+        error: 'Leave request not found or access denied'
+      }
+    }
+
+    // Verify current user is the manager of the requester
+    if (request.users?.manager_id !== currentUser.id) {
+      return {
+        success: false,
+        error: 'Unauthorized: You are not the manager for this employee'
+      }
+    }
+
+    // Update manager approval status
+    const { data: updatedRequest, error } = await supabase
+      .from('leave_requests')
+      .update({
+        manager_approval_status: 'Approved',
+        manager_approval_user_id: currentUser.id,
+        manager_approval_date: new Date().toISOString(),
+        manager_approval_notes: notes?.trim() || null
+      })
+      .eq('id', requestId)
+      .eq('company_id', companyId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Manager approval error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to approve leave request'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'LEAVE_REQUEST_MANAGER_APPROVED',
+      { manager_approval_status: 'Pending' },
+      { manager_approval_status: 'Approved', request_id: requestId },
+      request.user_id
+    )
+
+    return {
+      success: true,
+      request: updatedRequest
+    }
+  } catch (error) {
+    console.error('Approve request as manager error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while approving leave request'
+    }
+  }
+}
+
+/**
+ * Reject leave request as manager
+ * @param {string} requestId - Leave request ID
+ * @param {string} notes - Rejection reason
+ * @returns {Promise<Object>} Success object or error object
+ */
+export async function rejectRequestAsManager(requestId, notes = '') {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Get the leave request
+    const { data: request, error: fetchError } = await supabase
+      .from('leave_requests')
+      .select(`
+        id,
+        user_id,
+        manager_approval_status,
+        users:user_id(manager_id)
+      `)
+      .eq('id', requestId)
+      .eq('company_id', companyId)
+      .single()
+
+    if (fetchError || !request) {
+      return {
+        success: false,
+        error: 'Leave request not found or access denied'
+      }
+    }
+
+    // Verify current user is the manager
+    if (request.users?.manager_id !== currentUser.id) {
+      return {
+        success: false,
+        error: 'Unauthorized: You are not the manager for this employee'
+      }
+    }
+
+    // Update manager approval status to Rejected and overall status
+    const { data: updatedRequest, error } = await supabase
+      .from('leave_requests')
+      .update({
+        manager_approval_status: 'Rejected',
+        status: 'Rejected',
+        manager_approval_user_id: currentUser.id,
+        manager_approval_date: new Date().toISOString(),
+        manager_approval_notes: notes?.trim() || null
+      })
+      .eq('id', requestId)
+      .eq('company_id', companyId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Manager rejection error:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to reject leave request'
+      }
+    }
+
+    // Log audit entry
+    await logAuditAction(
+      companyId,
+      currentUser.id,
+      'LEAVE_REQUEST_MANAGER_REJECTED',
+      { manager_approval_status: 'Pending' },
+      { manager_approval_status: 'Rejected', request_id: requestId },
+      request.user_id
+    )
+
+    return {
+      success: true,
+      request: updatedRequest
+    }
+  } catch (error) {
+    console.error('Reject request as manager error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while rejecting leave request'
+    }
+  }
+}
+
+/**
+ * Get leave requests that have manager approval but need HR final approval
+ * @returns {Promise<Object>} Success object with requests array or error object
+ */
+export async function getManagerApprovedRequests() {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    if (!canWriteHR()) {
+      return {
+        success: false,
+        error: 'Unauthorized: Only HR Managers can view manager-approved requests'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Fetch requests where manager approved but HR hasn't approved yet
+    const { data: requests, error } = await supabase
+      .from('leave_requests')
+      .select(`
+        id,
+        start_date,
+        end_date,
+        type,
+        reason,
+        status,
+        manager_approval_status,
+        manager_approval_date,
+        manager_approval_notes,
+        created_at,
+        users:user_id(
+          id,
+          email,
+          first_name,
+          last_name,
+          department
+        ),
+        manager:manager_approval_user_id(email, first_name, last_name)
+      `)
+      .eq('company_id', companyId)
+      .eq('manager_approval_status', 'Approved')
+      .eq('status', 'Pending')
+      .order('manager_approval_date', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching manager-approved requests:', error)
+      return {
+        success: false,
+        error: 'Failed to fetch manager-approved requests'
+      }
+    }
+
+    return {
+      success: true,
+      requests: requests || []
+    }
+  } catch (error) {
+    console.error('Get manager-approved requests error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while fetching requests'
+    }
+  }
+}
+

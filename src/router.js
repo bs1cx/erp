@@ -7,6 +7,8 @@ const HRDashboard = () => import('./modules/hr/HRDashboard.vue')
 const FinanceDashboard = () => import('./modules/finance/FinanceDashboard.vue')
 const ITDashboard = () => import('./modules/it/ITDashboard.vue')
 
+const SelfServicePortal = () => import('./modules/self/SelfServicePortal.vue')
+
 const routes = [
   {
     path: '/login',
@@ -31,6 +33,12 @@ const routes = [
     name: 'IT',
     component: ITDashboard,
     meta: { requiresAuth: true, role: 'IT_ADMIN' }
+  },
+  {
+    path: '/self',
+    name: 'SelfService',
+    component: SelfServicePortal,
+    meta: { requiresAuth: true } // Accessible to all authenticated users
   },
   {
     path: '/',

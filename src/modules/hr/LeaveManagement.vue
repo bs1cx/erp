@@ -25,16 +25,16 @@
       </div>
     </div>
 
-    <!-- Pending Leave Requests -->
+    <!-- Manager-Approved Requests (HR Final Approval) -->
     <div class="requests-section">
-      <h3 class="subsection-title">Pending Approval</h3>
+      <h3 class="subsection-title">Manager-Approved Requests (HR Final Approval)</h3>
       
       <div v-if="loading" class="loading-state">
         Loading leave requests...
       </div>
 
       <div v-else-if="pendingRequests.length === 0" class="empty-state">
-        No pending leave requests.
+        No pending leave requests requiring HR approval.
       </div>
 
       <div v-else class="requests-list">
@@ -53,6 +53,13 @@
                 <span class="request-type">{{ request.type }}</span>
                 <span class="request-date-range">
                   {{ formatDate(request.start_date) }} - {{ formatDate(request.end_date) }}
+                </span>
+              </div>
+              <div v-if="request.manager" class="manager-approval-info">
+                <span class="approval-label">Approved by Manager:</span>
+                <span class="approval-name">{{ getEmployeeName(request.manager) }}</span>
+                <span v-if="request.manager_approval_date" class="approval-date">
+                  on {{ formatDate(request.manager_approval_date) }}
                 </span>
               </div>
             </div>
@@ -75,6 +82,9 @@
           </div>
           <div v-if="request.reason" class="request-reason">
             <strong>Reason:</strong> {{ request.reason }}
+          </div>
+          <div v-if="request.manager_approval_notes" class="request-notes">
+            <strong>Manager Notes:</strong> {{ request.manager_approval_notes }}
           </div>
         </div>
       </div>
@@ -245,6 +255,7 @@ import { ref, onMounted, computed } from 'vue'
 import { 
   submitLeaveRequest, 
   getPendingLeaveRequests, 
+  getManagerApprovedRequests,
   approveLeaveRequest, 
   rejectLeaveRequest,
   updateEmployeeProfile,
@@ -311,7 +322,8 @@ async function loadRequests() {
   errorMessage.value = ''
   
   try {
-    const result = await getPendingLeaveRequests()
+    // Get manager-approved requests that need HR final approval
+    const result = await getManagerApprovedRequests()
     if (result.success) {
       pendingRequests.value = result.requests || []
     } else {
@@ -880,6 +892,37 @@ function formatDate(dateString) {
   font-size: var(--font-size-xs);
   color: var(--color-text-medium);
   font-weight: normal;
+}
+
+.manager-approval-info {
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-medium);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.approval-label {
+  font-weight: 600;
+}
+
+.approval-name {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.approval-date {
+  color: var(--color-text-medium);
+}
+
+.request-notes {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-medium);
 }
 
 @media (max-width: 768px) {
