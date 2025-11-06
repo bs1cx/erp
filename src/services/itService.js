@@ -922,7 +922,8 @@ export async function getCompanyTickets() {
         resolved_at,
         closed_at,
         assigned_to_user_id,
-        requester:requester_user_id(email),
+        requester_user_id,
+        requester:requester_user_id(id, email),
         assignee:assigned_to_user_id(email)
       `)
       .eq('company_id', companyId) // CRITICAL: Tenant isolation

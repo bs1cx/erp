@@ -80,6 +80,9 @@
         <button @click="activeSection = 'planner'" class="action-button">
           <span class="action-label">Planner</span>
         </button>
+        <button @click="activeSection = 'attendance'" class="action-button">
+          <span class="action-label">Devam/Yoklama Takibi</span>
+        </button>
       </div>
     </div>
 
@@ -119,6 +122,11 @@
       <div v-if="activeSection === 'planner'" class="content-section">
         <HRPlanner @updated="loadKPIs" />
       </div>
+
+      <!-- Attendance Tracking Section -->
+      <div v-if="activeSection === 'attendance'" class="content-section">
+        <AttendanceReport />
+      </div>
     </div>
   </div>
 </template>
@@ -133,6 +141,7 @@ import PerformanceManagement from './PerformanceManagement.vue'
 import AuditLogView from './AuditLogView.vue'
 import PayrollManagement from './PayrollManagement.vue'
 import HRPlanner from './HRPlanner.vue'
+import AttendanceReport from './AttendanceReport.vue'
 
 const userData = ref(null)
 const companyId = ref(null)

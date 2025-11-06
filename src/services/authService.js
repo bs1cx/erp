@@ -126,6 +126,14 @@ export async function login(companyCode, email, password) {
       }
     }
 
+    // Record attendance (login time)
+    try {
+      await recordAttendanceLogin(user.id, user.company_id)
+    } catch (attendanceError) {
+      // Log error but don't fail login if attendance recording fails
+      console.error('Error recording attendance login:', attendanceError)
+    }
+
     // Return success with user data, token, and permissions
     return {
       success: true,
@@ -282,10 +290,105 @@ async function generateSessionToken(user, permissions = {}) {
 }
 
 /**
+ * Record attendance login
+ * @param {string} userId - User ID
+ * @param {string} companyId - Company ID
+ */
+async function recordAttendanceLogin(userId, companyId) {
+  try {
+    const { supabase } = await import('./supabaseClient')
+    
+    // First, close any existing active sessions for this user (safety measure)
+    await supabase
+      .from('attendance_records')
+      .update({
+        logout_time: new Date().toISOString(),
+        is_active: false,
+        notes: 'Auto-closed on new login'
+      })
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+
+    // Get client IP and user agent if available
+    const ipAddress = typeof window !== 'undefined' ? null : null // Server-side only
+    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : null
+
+    // Insert new attendance record
+    const { error } = await supabase
+      .from('attendance_records')
+      .insert({
+        user_id: userId,
+        company_id: companyId,
+        login_time: new Date().toISOString(),
+        is_active: true,
+        ip_address: ipAddress,
+        user_agent: userAgent
+      })
+
+    if (error) {
+      console.error('Error recording attendance login:', error)
+    }
+  } catch (error) {
+    console.error('Error in recordAttendanceLogin:', error)
+  }
+}
+
+/**
+ * Record attendance logout
+ * @param {string} userId - User ID
+ * @param {string} companyId - Company ID
+ */
+async function recordAttendanceLogout(userId, companyId) {
+  try {
+    const { supabase } = await import('./supabaseClient')
+    
+    // Find the latest active session for this user
+    const { data: activeSession, error: findError } = await supabase
+      .from('attendance_records')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .order('login_time', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (findError || !activeSession) {
+      console.warn('No active attendance session found for user:', userId)
+      return
+    }
+
+    // Update the session with logout time
+    const { error: updateError } = await supabase
+      .from('attendance_records')
+      .update({
+        logout_time: new Date().toISOString(),
+        is_active: false,
+        notes: 'Manual logout'
+      })
+      .eq('id', activeSession.id)
+
+    if (updateError) {
+      console.error('Error recording attendance logout:', updateError)
+    }
+  } catch (error) {
+    console.error('Error in recordAttendanceLogout:', error)
+  }
+}
+
+/**
  * Logout the current user
  */
 export async function logout() {
   try {
+    const currentUser = getCurrentUser()
+    const companyId = currentUser?.company_id
+
+    // Record attendance logout before clearing session
+    if (currentUser && companyId) {
+      await recordAttendanceLogout(currentUser.id, companyId)
+    }
     // Clear stored token
     removeAuthToken()
     localStorage.removeItem('user_data')
@@ -327,22 +430,118 @@ export function isAuthenticated() {
 
 /**
  * Get stored auth token
+ * Uses in-memory cache to avoid excessive localStorage access
  */
+let tokenCache = null
+let tokenCacheTime = null
+const TOKEN_CACHE_DURATION = 60000 // 1 minute cache
+
 export function getAuthToken() {
-  return localStorage.getItem('auth_token')
+  // Use cached token if available and recent
+  if (tokenCache && tokenCacheTime && (Date.now() - tokenCacheTime) < TOKEN_CACHE_DURATION) {
+    return tokenCache
+  }
+  
+  // Fetch from localStorage and cache
+  tokenCache = localStorage.getItem('auth_token')
+  tokenCacheTime = Date.now()
+  return tokenCache
 }
 
 /**
  * Store auth token
+ * Updates both localStorage and cache
  */
 export function setAuthToken(token) {
   localStorage.setItem('auth_token', token)
+  tokenCache = token
+  tokenCacheTime = Date.now()
 }
 
 /**
  * Remove auth token
+ * Clears both localStorage and cache
  */
 export function removeAuthToken() {
   localStorage.removeItem('auth_token')
+  tokenCache = null
+  tokenCacheTime = null
+}
+
+/**
+ * Validate token expiration
+ * @returns {boolean} True if token is valid and not expired
+ */
+export function isTokenValid() {
+  const token = getAuthToken()
+  if (!token) return false
+
+  try {
+    // Decode token (base64 encoded JSON)
+    const tokenData = JSON.parse(atob(token))
+    
+    // Check expiration (exp is in milliseconds)
+    if (tokenData.exp && tokenData.exp < Date.now()) {
+      return false
+    }
+    
+    // Check if token is nearing expiry (within 5 minutes)
+    const fiveMinutes = 5 * 60 * 1000
+    if (tokenData.exp && (tokenData.exp - Date.now()) < fiveMinutes) {
+      // Token is valid but expiring soon - could trigger refresh here
+      return true // Still valid, but caller should handle refresh
+    }
+    
+    return true
+  } catch (error) {
+    console.error('Error validating token:', error)
+    return false
+  }
+}
+
+/**
+ * Check if token is nearing expiration (within 5 minutes)
+ * @returns {boolean} True if token expires soon
+ */
+export function isTokenExpiringSoon() {
+  const token = getAuthToken()
+  if (!token) return false
+
+  try {
+    const tokenData = JSON.parse(atob(token))
+    if (!tokenData.exp) return false
+    
+    const fiveMinutes = 5 * 60 * 1000
+    return (tokenData.exp - Date.now()) < fiveMinutes
+  } catch (error) {
+    return false
+  }
+}
+
+/**
+ * Handle 401/403 errors by checking token and prompting re-login if needed
+ * @param {Error} error - API error object
+ * @returns {Promise<boolean>} True if error was handled, false otherwise
+ */
+export async function handleAuthError(error) {
+  // Check for 401 (Unauthorized) or 403 (Forbidden) errors
+  if (error?.status === 401 || error?.status === 403 || error?.code === 'PGRST301') {
+    // Token is invalid or expired
+    const tokenValid = isTokenValid()
+    
+    if (!tokenValid) {
+      // Token is invalid - clear session and redirect to login
+      await logout()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login'
+      }
+      return true
+    }
+    
+    // Token is valid but request was rejected - might be permission issue
+    return false
+  }
+  
+  return false
 }
 

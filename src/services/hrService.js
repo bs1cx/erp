@@ -4059,6 +4059,8 @@ export async function getPerformanceGoals(userId = null, status = null) {
       }
     }
 
+    // Ensure proper headers for Supabase request
+    // Supabase client automatically handles headers, but we ensure the query is properly formatted
     let query = supabase
       .from('performance_goals')
       .select(`
@@ -4084,6 +4086,7 @@ export async function getPerformanceGoals(userId = null, status = null) {
       query = query.eq('status', status)
     }
 
+    // Execute query with explicit error handling
     const { data: goals, error } = await query
 
     if (error) {
@@ -4103,6 +4106,240 @@ export async function getPerformanceGoals(userId = null, status = null) {
     return {
       success: false,
       error: 'An unexpected error occurred while fetching performance goals'
+    }
+  }
+}
+
+// ============================================================================
+// ATTENDANCE TRACKING (Devam/Yoklama Takibi)
+// ============================================================================
+
+/**
+ * Get monthly attendance report for company/department
+ * @param {string} companyId - Company ID
+ * @param {number} year - Year (e.g., 2024)
+ * @param {number} month - Month (1-12)
+ * @param {string} departmentId - Optional department ID for filtering
+ * @returns {Promise<Object>} Success object with attendance report or error object
+ */
+export async function getMonthlyAttendanceReport(companyId, year, month, departmentId = null) {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    if (!hasHRPermission()) {
+      return {
+        success: false,
+        error: 'Unauthorized: You do not have permission to view attendance reports'
+      }
+    }
+
+    if (!companyId) {
+      companyId = getCompanyId()
+      if (!companyId) {
+        return {
+          success: false,
+          error: 'Company ID not found'
+        }
+      }
+    }
+
+    // Validate month and year
+    if (month < 1 || month > 12) {
+      return {
+        success: false,
+        error: 'Invalid month. Must be between 1 and 12'
+      }
+    }
+
+    // Calculate date range for the month
+    const startDate = new Date(year, month - 1, 1)
+    const endDate = new Date(year, month, 0, 23, 59, 59)
+
+    // Build query to get attendance records with user information
+    let query = supabase
+      .from('attendance_records')
+      .select(`
+        id,
+        user_id,
+        login_time,
+        logout_time,
+        session_duration_minutes,
+        is_active,
+        users:user_id(
+          id,
+          first_name,
+          last_name,
+          email,
+          department,
+          job_title_id,
+          job_titles:job_title_id(
+            title_name
+          )
+        )
+      `)
+      .eq('company_id', companyId)
+      .gte('login_time', startDate.toISOString())
+      .lte('login_time', endDate.toISOString())
+      .order('login_time', { ascending: true })
+
+    // Filter by department if provided
+    if (departmentId) {
+      query = query.eq('users.department', departmentId)
+    }
+
+    const { data: records, error } = await query
+
+    if (error) {
+      console.error('Error fetching attendance records:', error)
+      return {
+        success: false,
+        error: 'Failed to fetch attendance records'
+      }
+    }
+
+    if (!records || records.length === 0) {
+      return {
+        success: true,
+        report: [],
+        summary: {
+          totalEmployees: 0,
+          totalDays: 0,
+          totalHours: 0
+        }
+      }
+    }
+
+    // Process records to group by user and date
+    const reportMap = new Map()
+
+    for (const record of records) {
+      const user = record.users
+      if (!user) continue
+
+      const userId = user.id
+      const loginDate = new Date(record.login_time)
+      const dateKey = `${userId}_${loginDate.toISOString().split('T')[0]}`
+
+      if (!reportMap.has(dateKey)) {
+        reportMap.set(dateKey, {
+          userId: userId,
+          userName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
+          userEmail: user.email,
+          department: user.department || 'N/A',
+          jobTitle: user.job_titles?.title_name || 'N/A',
+          date: loginDate.toISOString().split('T')[0],
+          sessions: [],
+          totalMinutes: 0
+        })
+      }
+
+      const dayReport = reportMap.get(dateKey)
+
+      // Calculate session time
+      if (record.logout_time && record.session_duration_minutes) {
+        const loginTime = new Date(record.login_time)
+        const logoutTime = new Date(record.logout_time)
+        
+        // Format time segments (HH:MM-HH:MM)
+        const loginTimeStr = loginTime.toLocaleTimeString('tr-TR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        })
+        const logoutTimeStr = logoutTime.toLocaleTimeString('tr-TR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        })
+
+        dayReport.sessions.push({
+          loginTime: loginTimeStr,
+          logoutTime: logoutTimeStr,
+          segment: `${loginTimeStr}-${logoutTimeStr}`,
+          durationMinutes: record.session_duration_minutes
+        })
+
+        dayReport.totalMinutes += record.session_duration_minutes
+      } else if (record.is_active) {
+        // Active session (no logout yet)
+        const loginTime = new Date(record.login_time)
+        const loginTimeStr = loginTime.toLocaleTimeString('tr-TR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        })
+
+        dayReport.sessions.push({
+          loginTime: loginTimeStr,
+          logoutTime: null,
+          segment: `${loginTimeStr}-... (Active)`,
+          durationMinutes: null,
+          isActive: true
+        })
+      }
+    }
+
+    // Convert map to array and format output
+    const report = Array.from(reportMap.values()).map(dayReport => {
+      // Sort sessions by login time
+      dayReport.sessions.sort((a, b) => {
+        if (!a.loginTime || !b.loginTime) return 0
+        return a.loginTime.localeCompare(b.loginTime)
+      })
+
+      // Format segmented times as array
+      const segmentedTimes = dayReport.sessions.map(s => s.segment)
+
+      // Calculate total hours and minutes
+      const totalHours = Math.floor(dayReport.totalMinutes / 60)
+      const totalMins = dayReport.totalMinutes % 60
+      const totalTimeFormatted = `${totalHours}:${totalMins.toString().padStart(2, '0')}`
+
+      return {
+        userId: dayReport.userId,
+        userName: dayReport.userName,
+        userEmail: dayReport.userEmail,
+        department: dayReport.department,
+        jobTitle: dayReport.jobTitle,
+        date: dayReport.date,
+        segmentedTimes: segmentedTimes,
+        totalMinutes: dayReport.totalMinutes,
+        totalTimeFormatted: totalTimeFormatted,
+        sessionCount: dayReport.sessions.length,
+        hasActiveSession: dayReport.sessions.some(s => s.isActive)
+      }
+    })
+
+    // Calculate summary statistics
+    const uniqueUsers = new Set(report.map(r => r.userId))
+    const uniqueDays = new Set(report.map(r => r.date))
+    const totalMinutes = report.reduce((sum, r) => sum + r.totalMinutes, 0)
+    const totalHours = Math.floor(totalMinutes / 60)
+
+    return {
+      success: true,
+      report: report,
+      summary: {
+        totalEmployees: uniqueUsers.size,
+        totalDays: uniqueDays.size,
+        totalHours: totalHours,
+        totalMinutes: totalMinutes,
+        month: month,
+        year: year
+      }
+    }
+  } catch (error) {
+    console.error('Get monthly attendance report error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while generating attendance report'
     }
   }
 }
