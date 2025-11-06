@@ -113,9 +113,14 @@ async function handleLogin() {
         setAuthToken(result.token)
       }
 
-      // Store user data in localStorage or Vuex/Pinia store
+      // Store user data in localStorage (including permissions)
       if (result.user) {
         localStorage.setItem('user_data', JSON.stringify(result.user))
+        
+        // Store permissions separately for easy access
+        if (result.user.permissions) {
+          localStorage.setItem('user_permissions', JSON.stringify(result.user.permissions))
+        }
       }
 
       // Redirect to role-based default route
@@ -139,8 +144,8 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+  padding: var(--spacing-lg);
 }
 
 .login-card {
@@ -207,21 +212,23 @@ async function handleLogin() {
 }
 
 .login-button {
-  padding: 14px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
   border: none;
-  border-radius: 8px;
-  font-size: 16px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
-  margin-top: 8px;
+  transition: all var(--transition-base);
+  margin-top: var(--spacing-sm);
+  width: 100%;
 }
 
 .login-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  background: var(--color-primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(42, 99, 62, 0.3);
 }
 
 .login-button:active:not(:disabled) {
