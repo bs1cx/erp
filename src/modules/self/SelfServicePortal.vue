@@ -490,6 +490,20 @@ const contactForm = ref({
   emergency_contact_relationship: ''
 })
 
+const goalForm = ref({
+  goal_description: '',
+  weight: 0,
+  target_date: '',
+  employee_notes: ''
+})
+
+const ratingForm = ref({
+  goalId: null,
+  rating: 1,
+  notes: '',
+  isEmployee: true
+})
+
 const currentUserId = computed(() => {
   const userData = localStorage.getItem('user_data')
   if (!userData) return null

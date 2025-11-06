@@ -80,9 +80,6 @@
         <button @click="activeSection = 'planner'" class="action-button">
           <span class="action-label">Planner</span>
         </button>
-        <a href="/self" class="action-button" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">
-          <span class="action-label">Self-Service Portal</span>
-        </a>
       </div>
     </div>
 

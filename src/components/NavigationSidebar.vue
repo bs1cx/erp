@@ -46,6 +46,14 @@
           <div class="user-role">{{ userRole }}</div>
         </div>
       </div>
+      <router-link
+        to="/self"
+        class="self-service-link"
+        :title="isCollapsed ? 'Self-Service Portal' : ''"
+      >
+        <span class="nav-icon">👤</span>
+        <span v-if="!isCollapsed">Self-Service Portal</span>
+      </router-link>
       <button @click="handleLogout" class="logout-button" :title="isCollapsed ? 'Logout' : ''">
         <span class="nav-icon">🚪</span>
         <span v-if="!isCollapsed">Logout</span>
@@ -266,6 +274,27 @@ async function handleLogout() {
   text-overflow: ellipsis;
 }
 
+.self-service-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-on-primary);
+  font-size: var(--font-size-base);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--transition-base);
+  margin-bottom: var(--spacing-sm);
+}
+
+.self-service-link:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .logout-button {
   width: 100%;
   display: flex;
@@ -288,6 +317,11 @@ async function handleLogout() {
 .navigation-sidebar.collapsed .user-profile,
 .navigation-sidebar.collapsed .user-details {
   display: none;
+}
+
+.navigation-sidebar.collapsed .self-service-link {
+  justify-content: center;
+  padding: var(--spacing-md);
 }
 
 .navigation-sidebar.collapsed .logout-button {
