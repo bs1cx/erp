@@ -535,20 +535,44 @@ export async function getAllCompanyEmployees(page = 1, limit = 50, filters = {})
 
     if (error) {
       console.error('Error fetching employees:', error)
+      // Return empty array on error to prevent frontend crashes
       return {
         success: false,
-        error: 'Failed to fetch employees'
+        error: error.message || 'Failed to fetch employees',
+        employees: [],
+        pagination: {
+          page: 1,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
       }
     }
 
+    // Ensure employees is always an array
+    const employeesArray = Array.isArray(employees) ? employees : []
+
     // Add full_name field (concatenated first_name + last_name)
-    const employeesWithFullName = (employees || []).map(emp => ({
-      ...emp,
-      full_name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.email
-    }))
+    const employeesWithFullName = employeesArray.map(emp => {
+      try {
+        return {
+          ...emp,
+          full_name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.email || 'Unknown'
+        }
+      } catch (mapError) {
+        console.error('Error mapping employee:', mapError, emp)
+        return {
+          ...emp,
+          full_name: emp.email || 'Unknown'
+        }
+      }
+    })
 
     // Calculate pagination info
-    const totalPages = Math.ceil((count || 0) / limit)
+    const totalCount = count || 0
+    const totalPages = Math.ceil(totalCount / limit)
 
     return {
       success: true,
@@ -556,7 +580,7 @@ export async function getAllCompanyEmployees(page = 1, limit = 50, filters = {})
       pagination: {
         page,
         limit,
-        total: count || 0,
+        total: totalCount,
         totalPages,
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1
@@ -564,9 +588,19 @@ export async function getAllCompanyEmployees(page = 1, limit = 50, filters = {})
     }
   } catch (error) {
     console.error('Get employees error:', error)
+    // Always return a valid structure even on unexpected errors
     return {
       success: false,
-      error: 'An unexpected error occurred while fetching employees'
+      error: 'An unexpected error occurred while fetching employees',
+      employees: [],
+      pagination: {
+        page: 1,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false
+      }
     }
   }
 }
@@ -4158,9 +4192,9 @@ export async function getMonthlyAttendanceReport(companyId, year, month, departm
       }
     }
 
-    // Calculate date range for the month
-    const startDate = new Date(year, month - 1, 1)
-    const endDate = new Date(year, month, 0, 23, 59, 59)
+    // Calculate date range for the month (using UTC to avoid timezone issues)
+    const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
+    const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
 
     // Build query to get attendance records with user information
     let query = supabase
@@ -4200,18 +4234,33 @@ export async function getMonthlyAttendanceReport(companyId, year, month, departm
       console.error('Error fetching attendance records:', error)
       return {
         success: false,
-        error: 'Failed to fetch attendance records'
+        error: 'Failed to fetch attendance records',
+        report: [],
+        summary: {
+          totalEmployees: 0,
+          totalDays: 0,
+          totalHours: 0,
+          totalMinutes: 0,
+          month: month,
+          year: year
+        }
       }
     }
 
-    if (!records || records.length === 0) {
+    // Ensure records is always an array
+    const recordsArray = Array.isArray(records) ? records : []
+
+    if (recordsArray.length === 0) {
       return {
         success: true,
         report: [],
         summary: {
           totalEmployees: 0,
           totalDays: 0,
-          totalHours: 0
+          totalHours: 0,
+          totalMinutes: 0,
+          month: month,
+          year: year
         }
       }
     }
@@ -4219,127 +4268,225 @@ export async function getMonthlyAttendanceReport(companyId, year, month, departm
     // Process records to group by user and date
     const reportMap = new Map()
 
-    for (const record of records) {
-      const user = record.users
-      if (!user) continue
+    for (const record of recordsArray) {
+      try {
+        const user = record.users
+        if (!user || !user.id) {
+          console.warn('Skipping record with missing user data:', record.id)
+          continue
+        }
 
-      const userId = user.id
-      const loginDate = new Date(record.login_time)
-      const dateKey = `${userId}_${loginDate.toISOString().split('T')[0]}`
-
-      if (!reportMap.has(dateKey)) {
-        reportMap.set(dateKey, {
-          userId: userId,
-          userName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
-          userEmail: user.email,
-          department: user.department || 'N/A',
-          jobTitle: user.job_titles?.title_name || 'N/A',
-          date: loginDate.toISOString().split('T')[0],
-          sessions: [],
-          totalMinutes: 0
-        })
-      }
-
-      const dayReport = reportMap.get(dateKey)
-
-      // Calculate session time
-      if (record.logout_time && record.session_duration_minutes) {
-        const loginTime = new Date(record.login_time)
-        const logoutTime = new Date(record.logout_time)
+        const userId = user.id
         
-        // Format time segments (HH:MM-HH:MM)
-        const loginTimeStr = loginTime.toLocaleTimeString('tr-TR', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        })
-        const logoutTimeStr = logoutTime.toLocaleTimeString('tr-TR', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        })
+        // Safely parse login time
+        let loginDate
+        try {
+          loginDate = new Date(record.login_time)
+          if (isNaN(loginDate.getTime())) {
+            console.warn('Invalid login_time for record:', record.id, record.login_time)
+            continue
+          }
+        } catch (dateError) {
+          console.error('Error parsing login_time:', dateError, record.login_time)
+          continue
+        }
 
-        dayReport.sessions.push({
-          loginTime: loginTimeStr,
-          logoutTime: logoutTimeStr,
-          segment: `${loginTimeStr}-${logoutTimeStr}`,
-          durationMinutes: record.session_duration_minutes
-        })
+        const dateKey = `${userId}_${loginDate.toISOString().split('T')[0]}`
 
-        dayReport.totalMinutes += record.session_duration_minutes
-      } else if (record.is_active) {
-        // Active session (no logout yet)
-        const loginTime = new Date(record.login_time)
-        const loginTimeStr = loginTime.toLocaleTimeString('tr-TR', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        })
+        if (!reportMap.has(dateKey)) {
+          reportMap.set(dateKey, {
+            userId: userId,
+            userName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email || 'Unknown',
+            userEmail: user.email || 'N/A',
+            department: user.department || 'N/A',
+            jobTitle: user.job_titles?.title_name || 'N/A',
+            date: loginDate.toISOString().split('T')[0],
+            sessions: [],
+            totalMinutes: 0
+          })
+        }
 
-        dayReport.sessions.push({
-          loginTime: loginTimeStr,
-          logoutTime: null,
-          segment: `${loginTimeStr}-... (Active)`,
-          durationMinutes: null,
-          isActive: true
-        })
+        const dayReport = reportMap.get(dateKey)
+
+        // Calculate session time with robust error handling
+        try {
+          if (record.logout_time && record.session_duration_minutes !== null && record.session_duration_minutes !== undefined) {
+            // Use stored duration if available
+            const loginTime = new Date(record.login_time)
+            const logoutTime = new Date(record.logout_time)
+            
+            // Validate dates
+            if (isNaN(loginTime.getTime()) || isNaN(logoutTime.getTime())) {
+              console.warn('Invalid date in record:', record.id)
+              continue
+            }
+
+            // Format time segments (HH:MM-HH:MM) using English locale
+            const loginTimeStr = loginTime.toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            })
+            const logoutTimeStr = logoutTime.toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            })
+
+            const durationMinutes = Math.max(0, record.session_duration_minutes || 0)
+
+            dayReport.sessions.push({
+              loginTime: loginTimeStr,
+              logoutTime: logoutTimeStr,
+              segment: `${loginTimeStr}-${logoutTimeStr}`,
+              durationMinutes: durationMinutes
+            })
+
+            dayReport.totalMinutes += durationMinutes
+          } else if (record.is_active) {
+            // Active session (no logout yet)
+            const loginTime = new Date(record.login_time)
+            if (!isNaN(loginTime.getTime())) {
+              const loginTimeStr = loginTime.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+              })
+
+              dayReport.sessions.push({
+                loginTime: loginTimeStr,
+                logoutTime: null,
+                segment: `${loginTimeStr}-... (Active)`,
+                durationMinutes: null,
+                isActive: true
+              })
+            }
+          }
+        } catch (sessionError) {
+          console.error('Error processing session for record:', record.id, sessionError)
+          // Continue processing other records
+        }
+      } catch (recordError) {
+        console.error('Error processing attendance record:', recordError, record)
+        // Continue processing other records
       }
     }
 
-    // Convert map to array and format output
+    // Convert map to array and format output with error handling
     const report = Array.from(reportMap.values()).map(dayReport => {
-      // Sort sessions by login time
-      dayReport.sessions.sort((a, b) => {
-        if (!a.loginTime || !b.loginTime) return 0
-        return a.loginTime.localeCompare(b.loginTime)
-      })
+      try {
+        // Sort sessions by login time
+        dayReport.sessions.sort((a, b) => {
+          try {
+            if (!a.loginTime || !b.loginTime) return 0
+            return a.loginTime.localeCompare(b.loginTime)
+          } catch (sortError) {
+            console.warn('Error sorting sessions:', sortError)
+            return 0
+          }
+        })
 
-      // Format segmented times as array
-      const segmentedTimes = dayReport.sessions.map(s => s.segment)
+        // Format segmented times as array
+        const segmentedTimes = dayReport.sessions.map(s => {
+          try {
+            return s.segment || 'N/A'
+          } catch {
+            return 'N/A'
+          }
+        })
 
-      // Calculate total hours and minutes
-      const totalHours = Math.floor(dayReport.totalMinutes / 60)
-      const totalMins = dayReport.totalMinutes % 60
-      const totalTimeFormatted = `${totalHours}:${totalMins.toString().padStart(2, '0')}`
+        // Calculate total hours and minutes with validation
+        const totalMinutes = Math.max(0, dayReport.totalMinutes || 0)
+        const totalHours = Math.floor(totalMinutes / 60)
+        const totalMins = totalMinutes % 60
+        const totalTimeFormatted = `${totalHours}:${totalMins.toString().padStart(2, '0')}`
 
-      return {
-        userId: dayReport.userId,
-        userName: dayReport.userName,
-        userEmail: dayReport.userEmail,
-        department: dayReport.department,
-        jobTitle: dayReport.jobTitle,
-        date: dayReport.date,
-        segmentedTimes: segmentedTimes,
-        totalMinutes: dayReport.totalMinutes,
-        totalTimeFormatted: totalTimeFormatted,
-        sessionCount: dayReport.sessions.length,
-        hasActiveSession: dayReport.sessions.some(s => s.isActive)
+        return {
+          userId: dayReport.userId,
+          userName: dayReport.userName || 'Unknown',
+          userEmail: dayReport.userEmail || 'N/A',
+          department: dayReport.department || 'N/A',
+          jobTitle: dayReport.jobTitle || 'N/A',
+          date: dayReport.date,
+          segmentedTimes: segmentedTimes,
+          totalMinutes: totalMinutes,
+          totalTimeFormatted: totalTimeFormatted,
+          sessionCount: dayReport.sessions.length,
+          hasActiveSession: dayReport.sessions.some(s => s.isActive === true)
+        }
+      } catch (formatError) {
+        console.error('Error formatting day report:', formatError, dayReport)
+        // Return a safe default structure
+        return {
+          userId: dayReport.userId || 'unknown',
+          userName: dayReport.userName || 'Unknown',
+          userEmail: dayReport.userEmail || 'N/A',
+          department: dayReport.department || 'N/A',
+          jobTitle: dayReport.jobTitle || 'N/A',
+          date: dayReport.date || '',
+          segmentedTimes: [],
+          totalMinutes: 0,
+          totalTimeFormatted: '0:00',
+          sessionCount: 0,
+          hasActiveSession: false
+        }
       }
     })
 
-    // Calculate summary statistics
-    const uniqueUsers = new Set(report.map(r => r.userId))
-    const uniqueDays = new Set(report.map(r => r.date))
-    const totalMinutes = report.reduce((sum, r) => sum + r.totalMinutes, 0)
-    const totalHours = Math.floor(totalMinutes / 60)
+    // Calculate summary statistics with error handling
+    try {
+      const uniqueUsers = new Set(report.map(r => r.userId).filter(id => id))
+      const uniqueDays = new Set(report.map(r => r.date).filter(date => date))
+      const totalMinutes = report.reduce((sum, r) => {
+        try {
+          return sum + (r.totalMinutes || 0)
+        } catch {
+          return sum
+        }
+      }, 0)
+      const totalHours = Math.floor(totalMinutes / 60)
 
-    return {
-      success: true,
-      report: report,
-      summary: {
-        totalEmployees: uniqueUsers.size,
-        totalDays: uniqueDays.size,
-        totalHours: totalHours,
-        totalMinutes: totalMinutes,
-        month: month,
-        year: year
+      return {
+        success: true,
+        report: report,
+        summary: {
+          totalEmployees: uniqueUsers.size,
+          totalDays: uniqueDays.size,
+          totalHours: totalHours,
+          totalMinutes: totalMinutes,
+          month: month,
+          year: year
+        }
+      }
+    } catch (summaryError) {
+      console.error('Error calculating summary:', summaryError)
+      return {
+        success: true,
+        report: report,
+        summary: {
+          totalEmployees: 0,
+          totalDays: 0,
+          totalHours: 0,
+          totalMinutes: 0,
+          month: month,
+          year: year
+        }
       }
     }
   } catch (error) {
     console.error('Get monthly attendance report error:', error)
     return {
       success: false,
-      error: 'An unexpected error occurred while generating attendance report'
+      error: 'An unexpected error occurred while generating attendance report',
+      report: [],
+      summary: {
+        totalEmployees: 0,
+        totalDays: 0,
+        totalHours: 0,
+        totalMinutes: 0,
+        month: month || 0,
+        year: year || 0
+      }
     }
   }
 }

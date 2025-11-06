@@ -1,7 +1,7 @@
 <template>
   <div class="attendance-report">
     <div class="report-header">
-      <h2 class="report-title">Devam/Yoklama Takibi</h2>
+      <h2 class="report-title">Time & Attendance Tracking</h2>
       <div class="report-filters">
         <div class="filter-group">
           <label class="filter-label">Month</label>
@@ -202,7 +202,7 @@ function getMonthName(monthNumber) {
 function formatDate(dateString) {
   try {
     const date = new Date(dateString)
-    return date.toLocaleDateString('tr-TR', {
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'

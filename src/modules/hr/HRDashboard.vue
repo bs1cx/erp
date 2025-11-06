@@ -81,7 +81,7 @@
           <span class="action-label">Planner</span>
         </button>
         <button @click="activeSection = 'attendance'" class="action-button">
-          <span class="action-label">Devam/Yoklama Takibi</span>
+          <span class="action-label">Time & Attendance</span>
         </button>
       </div>
     </div>

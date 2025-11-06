@@ -299,7 +299,7 @@ async function recordAttendanceLogin(userId, companyId) {
     const { supabase } = await import('./supabaseClient')
     
     // First, close any existing active sessions for this user (safety measure)
-    await supabase
+    const { error: updateError } = await supabase
       .from('attendance_records')
       .update({
         logout_time: new Date().toISOString(),
@@ -310,12 +310,17 @@ async function recordAttendanceLogin(userId, companyId) {
       .eq('company_id', companyId)
       .eq('is_active', true)
 
+    // Log update errors but don't fail
+    if (updateError) {
+      console.warn('Error closing existing attendance sessions:', updateError)
+    }
+
     // Get client IP and user agent if available
     const ipAddress = typeof window !== 'undefined' ? null : null // Server-side only
     const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : null
 
     // Insert new attendance record
-    const { error } = await supabase
+    const { error: insertError } = await supabase
       .from('attendance_records')
       .insert({
         user_id: userId,
@@ -326,11 +331,12 @@ async function recordAttendanceLogin(userId, companyId) {
         user_agent: userAgent
       })
 
-    if (error) {
-      console.error('Error recording attendance login:', error)
+    if (insertError) {
+      console.error('Error recording attendance login:', insertError)
     }
   } catch (error) {
     console.error('Error in recordAttendanceLogin:', error)
+    // Don't throw - attendance recording should not block login
   }
 }
 
@@ -352,9 +358,14 @@ async function recordAttendanceLogout(userId, companyId) {
       .eq('is_active', true)
       .order('login_time', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle() // Use maybeSingle() instead of single() to avoid errors when no record exists
 
-    if (findError || !activeSession) {
+    if (findError) {
+      console.warn('Error finding active attendance session:', findError)
+      return
+    }
+
+    if (!activeSession || !activeSession.id) {
       console.warn('No active attendance session found for user:', userId)
       return
     }
@@ -374,6 +385,7 @@ async function recordAttendanceLogout(userId, companyId) {
     }
   } catch (error) {
     console.error('Error in recordAttendanceLogout:', error)
+    // Don't throw - attendance recording should not block logout
   }
 }
 
