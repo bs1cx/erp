@@ -17,12 +17,12 @@ function getCurrentUser() {
 }
 
 /**
- * Check if current user is IT_ADMIN
- * @returns {boolean} True if user is IT_ADMIN
+ * Check if current user is HR_MANAGER
+ * @returns {boolean} True if user is HR_MANAGER
  */
-function isITAdmin() {
+function isHRManager() {
   const user = getCurrentUser()
-  return user?.role === 'IT_ADMIN'
+  return user?.role === 'HR_MANAGER'
 }
 
 /**
@@ -51,7 +51,7 @@ export async function getAvailableRoles() {
 /**
  * Create a new user in the system
  * CRITICAL: Uses the current user's companyId to ensure multi-tenant isolation
- * Only IT_ADMIN users can create new users
+ * Only HR_MANAGER users can create new users
  * 
  * @param {string} email - User's email address
  * @param {string} password - Temporary password (will be hashed)
@@ -60,7 +60,7 @@ export async function getAvailableRoles() {
  */
 export async function createUser(email, password, role) {
   try {
-    // Security check: Verify user is IT_ADMIN
+    // Security check: Verify user is HR_MANAGER
     const currentUser = getCurrentUser()
     
     if (!currentUser) {
@@ -70,10 +70,10 @@ export async function createUser(email, password, role) {
       }
     }
 
-    if (!isITAdmin()) {
+    if (!isHRManager()) {
       return {
         success: false,
-        error: 'Unauthorized: Only IT_ADMIN users can create new users'
+        error: 'Unauthorized: Only HR Managers can create new users'
       }
     }
 
@@ -152,7 +152,7 @@ export async function createUser(email, password, role) {
     const { data: newUser, error: insertError } = await supabase
       .from('users')
       .insert({
-        company_id: companyId, // CRITICAL: Uses IT_ADMIN's company_id
+        company_id: companyId, // CRITICAL: Uses HR_MANAGER's company_id
         email: email,
         password_hash: passwordHash, // Hashed password from database function
         role: role
@@ -219,7 +219,7 @@ export async function createUser(email, password, role) {
  */
 export async function getCompanyUsers() {
   try {
-    // Security check: Verify user is IT_ADMIN
+    // Security check: Verify user is HR_MANAGER
     const currentUser = getCurrentUser()
     
     if (!currentUser) {
@@ -229,10 +229,10 @@ export async function getCompanyUsers() {
       }
     }
 
-    if (!isITAdmin()) {
+    if (!isHRManager()) {
       return {
         success: false,
-        error: 'Unauthorized: Only IT_ADMIN users can view users'
+        error: 'Unauthorized: Only HR Managers can view users'
       }
     }
 
@@ -282,7 +282,7 @@ export async function getCompanyUsers() {
 
 /**
  * Update a user's information
- * Only IT_ADMIN can update users
+ * Only HR_MANAGER can update users
  * @param {string} userId - User ID to update
  * @param {Object} data - Update data (role, job_title_id, password)
  * @returns {Promise<Object>} Success object with updated user or error object
@@ -298,10 +298,10 @@ export async function updateUser(userId, data) {
       }
     }
 
-    if (!isITAdmin()) {
+    if (!isHRManager()) {
       return {
         success: false,
-        error: 'Unauthorized: Only IT_ADMIN users can update users'
+        error: 'Unauthorized: Only HR Managers can update users'
       }
     }
 

@@ -500,7 +500,7 @@ async function handleUpdateProfile() {
 }
 
 async function handleTerminate() {
-  if (!confirm('Are you sure you want to terminate this employee? This action will trigger automation workflows.')) {
+  if (!confirm('Are you sure you want to terminate this employee? This action cannot be undone.')) {
     return
   }
 
@@ -513,7 +513,7 @@ async function handleTerminate() {
   try {
     const result = await terminateEmployee(props.employeeId, reason)
     if (result.success) {
-      alert('Employee termination processed. Automation triggered.')
+      alert('Employee termination processed successfully.')
       handleClose()
       emit('updated')
     } else {

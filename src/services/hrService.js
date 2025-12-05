@@ -658,7 +658,6 @@ export async function getCompanyJobTitles() {
 
 /**
  * Terminate employee (Employee Separation)
- * Calls IT automation for EMPLOYEE_TERMINATED event
  * @param {string} userId - User ID
  * @param {string} reason - Termination reason
  * @returns {Promise<Object>} Success object or error object
@@ -721,17 +720,14 @@ export async function terminateEmployee(userId, reason) {
       userId
     )
 
-    // Note: Automation removed with IT module
-
     // Note: In a production system, you might want to:
     // - Mark user as inactive/deleted
     // - Archive employee data
     // - Revoke access to systems
-    // For now, we just trigger the automation
-
+    
     return {
       success: true,
-      message: 'Employee termination processed. Automation triggered.'
+      message: 'Employee termination processed successfully.'
     }
   } catch (error) {
     console.error('Terminate employee error:', error)
@@ -4527,57 +4523,6 @@ export async function getMonthlyAttendanceReport(companyId, year, month, departm
         month: month || 0,
         year: year || 0
       }
-    }
-  }
-}
-
-/**
- * Get all job titles for the current company
- * @returns {Promise<Object>} Success object with jobTitles array or error object
- */
-export async function getCompanyJobTitles() {
-  try {
-    const currentUser = getCurrentUser()
-    
-    if (!currentUser) {
-      return {
-        success: false,
-        error: 'User not authenticated'
-      }
-    }
-
-    const companyId = getCompanyId()
-    if (!companyId) {
-      return {
-        success: false,
-        error: 'Company ID not found in session'
-      }
-    }
-
-    // Fetch job titles for the company
-    const { data: jobTitles, error } = await supabase
-      .from('job_titles')
-      .select('*')
-      .eq('company_id', companyId)
-      .order('title_name', { ascending: true })
-
-    if (error) {
-      console.error('Error fetching job titles:', error)
-      return {
-        success: false,
-        error: error.message || 'Failed to fetch job titles'
-      }
-    }
-
-    return {
-      success: true,
-      jobTitles: jobTitles || []
-    }
-  } catch (error) {
-    console.error('Get company job titles error:', error)
-    return {
-      success: false,
-      error: 'An unexpected error occurred while fetching job titles'
     }
   }
 }
