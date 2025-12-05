@@ -4,8 +4,6 @@ import { getAuthToken, isAuthenticated } from './services/authService'
 // Import your page components
 const LoginPage = () => import('./pages/LoginPage.vue')
 const HRDashboard = () => import('./modules/hr/HRDashboard.vue')
-const FinanceDashboard = () => import('./modules/finance/FinanceDashboard.vue')
-const ITDashboard = () => import('./modules/it/ITDashboard.vue')
 
 const SelfServicePortal = () => import('./modules/self/SelfServicePortal.vue')
 
@@ -21,18 +19,6 @@ const routes = [
     name: 'HR',
     component: HRDashboard,
     meta: { requiresAuth: true, role: 'HR_USER' }
-  },
-  {
-    path: '/finance',
-    name: 'Finance',
-    component: FinanceDashboard,
-    meta: { requiresAuth: true, role: 'FINANCE_MANAGER' }
-  },
-  {
-    path: '/it',
-    name: 'IT',
-    component: ITDashboard,
-    meta: { requiresAuth: true, role: 'IT_ADMIN' }
   },
   {
     path: '/self',
@@ -73,9 +59,7 @@ function getUserDefaultRoute() {
         const perms = JSON.parse(permissions)
         
         // Check module access based on permissions
-        if (perms.module_it_read || perms.access_it) return '/it'
         if (perms.module_hr_read || perms.access_hr) return '/hr'
-        if (perms.module_finance_read || perms.access_finance) return '/finance'
       } catch (error) {
         console.error('Error parsing permissions:', error)
       }
@@ -83,11 +67,8 @@ function getUserDefaultRoute() {
     
     // Fallback to role-based routing
     const roleRoutes = {
-      'IT_ADMIN': '/it',
       'HR_USER': '/hr',
       'HR_MANAGER': '/hr',
-      'FINANCE_MANAGER': '/finance',
-      'FINANCE_USER': '/finance',
       'EMPLOYEE': '/hr' // Default for employees
     }
     
@@ -118,14 +99,8 @@ function hasRouteAccess(requiredRole) {
         const perms = JSON.parse(permissions)
         
         // Map role requirements to permission checks
-        if (requiredRole === 'IT_ADMIN') {
-          return perms.module_it_read || perms.access_it
-        }
         if (requiredRole === 'HR_USER' || requiredRole === 'HR_MANAGER') {
           return perms.module_hr_read || perms.access_hr
-        }
-        if (requiredRole === 'FINANCE_MANAGER') {
-          return perms.module_finance_read || perms.access_finance
         }
       } catch (error) {
         console.error('Error parsing permissions:', error)

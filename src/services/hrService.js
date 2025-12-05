@@ -606,6 +606,57 @@ export async function getAllCompanyEmployees(page = 1, limit = 50, filters = {})
 }
 
 /**
+ * Get all job titles for the current company
+ * @returns {Promise<Object>} Success object with jobTitles array or error object
+ */
+export async function getCompanyJobTitles() {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Fetch job titles for the company
+    const { data: jobTitles, error } = await supabase
+      .from('job_titles')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('title_name', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching job titles:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to fetch job titles'
+      }
+    }
+
+    return {
+      success: true,
+      jobTitles: jobTitles || []
+    }
+  } catch (error) {
+    console.error('Get company job titles error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while fetching job titles'
+    }
+  }
+}
+
+/**
  * Terminate employee (Employee Separation)
  * Calls IT automation for EMPLOYEE_TERMINATED event
  * @param {string} userId - User ID
@@ -670,18 +721,7 @@ export async function terminateEmployee(userId, reason) {
       userId
     )
 
-    // Call IT automation for employee termination
-    // Import executeAutomation dynamically to avoid circular dependencies
-    const { executeAutomation } = await import('./itService')
-    
-    await executeAutomation('EMPLOYEE_TERMINATED', {
-      user_id: userId,
-      company_id: companyId,
-      employee_email: employee.email,
-      employee_name: `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
-      termination_reason: reason || 'Not specified',
-      terminated_by: currentUser.id
-    })
+    // Note: Automation removed with IT module
 
     // Note: In a production system, you might want to:
     // - Mark user as inactive/deleted
@@ -4487,6 +4527,57 @@ export async function getMonthlyAttendanceReport(companyId, year, month, departm
         month: month || 0,
         year: year || 0
       }
+    }
+  }
+}
+
+/**
+ * Get all job titles for the current company
+ * @returns {Promise<Object>} Success object with jobTitles array or error object
+ */
+export async function getCompanyJobTitles() {
+  try {
+    const currentUser = getCurrentUser()
+    
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      }
+    }
+
+    const companyId = getCompanyId()
+    if (!companyId) {
+      return {
+        success: false,
+        error: 'Company ID not found in session'
+      }
+    }
+
+    // Fetch job titles for the company
+    const { data: jobTitles, error } = await supabase
+      .from('job_titles')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('title_name', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching job titles:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to fetch job titles'
+      }
+    }
+
+    return {
+      success: true,
+      jobTitles: jobTitles || []
+    }
+  } catch (error) {
+    console.error('Get company job titles error:', error)
+    return {
+      success: false,
+      error: 'An unexpected error occurred while fetching job titles'
     }
   }
 }

@@ -79,13 +79,7 @@ export async function login(companyCode, email, password) {
           mergedPermissions = {
             module_hr_read: permissions.some(p => p.module_hr_read === true),
             module_hr_write: permissions.some(p => p.module_hr_write === true),
-            module_finance_read: permissions.some(p => p.module_finance_read === true),
-            module_finance_write: permissions.some(p => p.module_finance_write === true),
-            module_it_read: permissions.some(p => p.module_it_read === true),
-            module_it_write: permissions.some(p => p.module_it_write === true),
-            access_hr: permissions.some(p => p.access_hr === true),
-            access_finance: permissions.some(p => p.access_finance === true),
-            access_it: permissions.some(p => p.access_it === true)
+            access_hr: permissions.some(p => p.access_hr === true)
           }
         }
       }
@@ -103,13 +97,7 @@ export async function login(companyCode, email, password) {
         mergedPermissions = {
           module_hr_read: directPermission.module_hr_read || false,
           module_hr_write: directPermission.module_hr_write || false,
-          module_finance_read: directPermission.module_finance_read || false,
-          module_finance_write: directPermission.module_finance_write || false,
-          module_it_read: directPermission.module_it_read || false,
-          module_it_write: directPermission.module_it_write || false,
-          access_hr: directPermission.access_hr || false,
-          access_finance: directPermission.access_finance || false,
-          access_it: directPermission.access_it || false
+          access_hr: directPermission.access_hr || false
         }
       }
     }

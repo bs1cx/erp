@@ -184,15 +184,9 @@ export async function createUser(email, password, role) {
       }
     }
 
-    // Trigger automation for USER_CREATED event
+    // Note: Automation removed with IT module
     try {
-      const { executeAutomation } = await import('./itService.js')
-      await executeAutomation('USER_CREATED', {
-        user_id: newUser.id,
-        email: newUser.email,
-        role: newUser.role,
-        company_id: newUser.company_id
-      })
+      // Automation removed
     } catch (error) {
       // Don't fail user creation if automation fails
       console.error('Automation execution error:', error)

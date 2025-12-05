@@ -39,12 +39,6 @@
       >
         My Goals
       </button>
-      <button
-        @click="activeTab = 'support'"
-        :class="['tab-button', { active: activeTab === 'support' }]"
-      >
-        Support Tickets
-      </button>
     </div>
 
     <!-- Profile Tab -->
@@ -238,55 +232,6 @@
       </div>
     </div>
 
-    <!-- Support Tickets Tab -->
-    <div v-if="activeTab === 'support'" class="portal-content">
-      <div class="content-section">
-        <div class="section-header-inline">
-          <h2 class="section-title">Support Tickets</h2>
-          <button @click="openTicketModal" class="primary-button">
-            Yeni Destek Talebi Aç
-          </button>
-        </div>
-
-        <div v-if="loadingTickets" class="loading-state">
-          Loading tickets...
-        </div>
-
-        <div v-else-if="myTickets.length === 0" class="empty-state">
-          No support tickets found. Create your first ticket above.
-        </div>
-
-        <div v-else class="tickets-list">
-          <div
-            v-for="ticket in myTickets"
-            :key="ticket.id"
-            class="ticket-card"
-          >
-            <div class="ticket-header">
-              <div class="ticket-info">
-                <h3 class="ticket-title">{{ ticket.title }}</h3>
-                <div class="ticket-meta">
-                  <span class="ticket-number">#{{ ticket.ticket_number }}</span>
-                  <span class="ticket-priority" :class="getPriorityClass(ticket.priority)">
-                    {{ ticket.priority }}
-                  </span>
-                  <span class="ticket-status" :class="getStatusClass(ticket.status)">
-                    {{ ticket.status }}
-                  </span>
-                  <span class="ticket-date">{{ formatDate(ticket.created_at) }}</span>
-                </div>
-              </div>
-            </div>
-            <div v-if="ticket.description" class="ticket-description">
-              {{ ticket.description }}
-            </div>
-            <div v-if="ticket.assignee" class="ticket-assignee">
-              <strong>Assigned to:</strong> {{ ticket.assignee.email }}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- Payslips Tab -->
     <div v-if="activeTab === 'payslips'" class="portal-content">
@@ -496,67 +441,6 @@
       </div>
     </div>
 
-    <!-- Create Ticket Modal -->
-    <div v-if="showTicketModal" class="modal-overlay" @click="closeTicketModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>Yeni Destek Talebi Aç</h3>
-          <button @click="closeTicketModal" class="modal-close">×</button>
-        </div>
-
-        <form @submit.prevent="handleCreateTicket" class="ticket-form">
-          <div class="form-group">
-            <label class="form-label">Subject *</label>
-            <input
-              v-model="ticketForm.title"
-              type="text"
-              class="form-input"
-              placeholder="Enter ticket subject..."
-              required
-              :disabled="loadingTicket"
-            />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Priority *</label>
-            <select
-              v-model="ticketForm.priority"
-              class="form-select"
-              required
-              :disabled="loadingTicket"
-            >
-              <option value="">Select priority</option>
-              <option value="Low">Low</option>
-              <option value="Medium">Medium</option>
-              <option value="High">High</option>
-              <option value="Critical">Critical</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Description *</label>
-            <textarea
-              v-model="ticketForm.description"
-              class="form-textarea"
-              rows="6"
-              placeholder="Describe your issue or request in detail..."
-              required
-              :disabled="loadingTicket"
-            ></textarea>
-          </div>
-
-          <div class="modal-actions">
-            <button type="button" @click="closeTicketModal" class="secondary-button" :disabled="loadingTicket">
-              Cancel
-            </button>
-            <button type="submit" class="primary-button" :disabled="loadingTicket || !isTicketFormValid">
-              <span v-if="loadingTicket">Creating...</span>
-              <span v-else>Create Ticket</span>
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -574,31 +458,26 @@ import {
   submitGoalRating,
   getPerformanceGoals
 } from '../../services/hrService'
-import { createTicket, getCompanyTickets } from '../../services/itService'
 
 const activeTab = ref('profile')
 const profile = ref(null)
 const myLeaveRequests = ref([])
 const payslips = ref([])
 const performanceGoals = ref([])
-const myTickets = ref([])
 const availableLeaveDays = ref(null)
 const loadingProfile = ref(false)
 const loadingLeave = ref(false)
 const loadingPayslips = ref(false)
 const loadingGoals = ref(false)
-const loadingTickets = ref(false)
 const loadingSubmit = ref(false)
 const loadingUpdate = ref(false)
 const loadingGoalSubmit = ref(false)
-const loadingTicket = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const showLeaveModal = ref(false)
 const showContactModal = ref(false)
 const showGoalModal = ref(false)
 const showRatingModal = ref(false)
-const showTicketModal = ref(false)
 
 const leaveForm = ref({
   start_date: '',
@@ -627,11 +506,6 @@ const ratingForm = ref({
   isEmployee: true
 })
 
-const ticketForm = ref({
-  title: '',
-  description: '',
-  priority: 'Medium'
-})
 
 const currentUserId = computed(() => {
   const userData = localStorage.getItem('user_data')
@@ -662,7 +536,6 @@ onMounted(() => {
     loadPayslips()
     loadPerformanceGoals()
     loadAvailableLeaveDays()
-    loadMyTickets()
   }
 })
 
@@ -1049,86 +922,6 @@ async function handleSubmitRating() {
   }
 }
 
-async function loadMyTickets() {
-  if (!currentUserId.value) return
-  
-  loadingTickets.value = true
-  try {
-    // Get all tickets for current user
-    const result = await getCompanyTickets()
-    if (result.success) {
-      // Filter to only show tickets created by current user
-      // Check both requester.id and requester_user_id for compatibility
-      myTickets.value = (result.tickets || []).filter(ticket => {
-        const requesterId = ticket.requester?.id || ticket.requester_user_id
-        return requesterId === currentUserId.value
-      })
-    }
-  } catch (error) {
-    console.error('Error loading tickets:', error)
-    errorMessage.value = 'Failed to load tickets. Please try again.'
-  } finally {
-    loadingTickets.value = false
-  }
-}
-
-function openTicketModal() {
-  ticketForm.value = {
-    title: '',
-    description: '',
-    priority: 'Medium'
-  }
-  showTicketModal.value = true
-}
-
-function closeTicketModal() {
-  showTicketModal.value = false
-}
-
-const isTicketFormValid = computed(() => {
-  return ticketForm.value.title &&
-         ticketForm.value.description &&
-         ticketForm.value.priority
-})
-
-async function handleCreateTicket() {
-  if (!currentUserId.value) return
-  
-  loadingTicket.value = true
-  errorMessage.value = ''
-  successMessage.value = ''
-
-  try {
-    const result = await createTicket({
-      title: ticketForm.value.title.trim(),
-      description: ticketForm.value.description.trim(),
-      priority: ticketForm.value.priority
-    })
-    
-    if (result.success) {
-      successMessage.value = 'Support ticket created successfully! Ticket #' + result.ticket.ticket_number
-      closeTicketModal()
-      await loadMyTickets()
-    } else {
-      errorMessage.value = result.error || 'Failed to create ticket'
-    }
-  } catch (error) {
-    console.error('Error creating ticket:', error)
-    errorMessage.value = 'An unexpected error occurred'
-  } finally {
-    loadingTicket.value = false
-  }
-}
-
-function getPriorityClass(priority) {
-  const priorityMap = {
-    'Critical': 'priority-critical',
-    'High': 'priority-high',
-    'Medium': 'priority-medium',
-    'Low': 'priority-low'
-  }
-  return priorityMap[priority] || 'priority-default'
-}
 </script>
 
 <style scoped>

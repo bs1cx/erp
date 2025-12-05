@@ -23,19 +23,6 @@
         </router-link>
       </div>
 
-      <div v-if="isITAdmin" class="nav-section">
-        <h3 v-if="!isCollapsed" class="nav-section-title">IT Management</h3>
-        <router-link
-          v-for="item in itNavItems"
-          :key="item.path"
-          :to="item.path"
-          class="nav-item"
-          :class="{ active: $route.path === item.path }"
-        >
-          <span class="nav-icon">{{ item.icon }}</span>
-          <span v-if="!isCollapsed" class="nav-label">{{ item.label }}</span>
-        </router-link>
-      </div>
     </nav>
 
     <div class="sidebar-footer">
@@ -72,15 +59,8 @@ const isCollapsed = ref(false)
 const userEmail = ref('')
 const userRole = ref('')
 
-const isITAdmin = computed(() => userRole.value === 'IT_ADMIN')
-
 const mainNavItems = [
   { path: '/hr', label: 'HR Dashboard', icon: '👥' },
-  { path: '/finance', label: 'Finance Dashboard', icon: '💰' },
-]
-
-const itNavItems = [
-  { path: '/it', label: 'IT Dashboard', icon: '🖥️' },
 ]
 
 const userInitials = computed(() => {

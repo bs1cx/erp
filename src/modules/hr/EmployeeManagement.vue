@@ -343,8 +343,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { createEmployee, updateEmployeeProfile, getAllCompanyEmployees, getEmployeeProfile, updateBulkEmployees, exportEmployeesToCSV } from '../../services/hrService'
-import { getCompanyJobTitles } from '../../services/itService'
+import { createEmployee, updateEmployeeProfile, getAllCompanyEmployees, getEmployeeProfile, updateBulkEmployees, exportEmployeesToCSV, getCompanyJobTitles } from '../../services/hrService'
 import EmployeeDetailProfile from './EmployeeDetailProfile.vue'
 
 const emit = defineEmits(['updated'])

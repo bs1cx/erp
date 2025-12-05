@@ -86,9 +86,7 @@ function getUserDefaultRoute() {
         const perms = JSON.parse(permissions)
         
         // Check module access based on permissions
-        if (perms.module_it_read || perms.access_it) return '/it'
         if (perms.module_hr_read || perms.access_hr) return '/hr'
-        if (perms.module_finance_read || perms.access_finance) return '/finance'
       } catch (error) {
         console.error('Error parsing permissions:', error)
       }
@@ -96,11 +94,8 @@ function getUserDefaultRoute() {
     
     // Fallback to role-based routing
     const roleRoutes = {
-      'IT_ADMIN': '/it',
       'HR_USER': '/hr',
       'HR_MANAGER': '/hr',
-      'FINANCE_MANAGER': '/finance',
-      'FINANCE_USER': '/finance',
       'EMPLOYEE': '/hr'
     }
     
@@ -122,14 +117,13 @@ const errorMessage = ref('')
  */
 function getDefaultRoute(role) {
   const roleRoutes = {
-    'IT_ADMIN': '/it',
     'HR_USER': '/hr',
-    'FINANCE_MANAGER': '/finance',
-    // Add more role-based routes as needed
+    'HR_MANAGER': '/hr',
+    'EMPLOYEE': '/hr'
   }
   
   // Default route if role doesn't match
-  return roleRoutes[role] || '/dashboard'
+  return roleRoutes[role] || '/hr'
 }
 
 /**
@@ -176,12 +170,8 @@ async function handleLogin() {
       // Check permissions from result first
       if (result.user?.permissions) {
         const perms = result.user.permissions
-        if (perms.module_it_read || perms.access_it) {
-          defaultRoute = '/it'
-        } else if (perms.module_hr_read || perms.access_hr) {
+        if (perms.module_hr_read || perms.access_hr) {
           defaultRoute = '/hr'
-        } else if (perms.module_finance_read || perms.access_finance) {
-          defaultRoute = '/finance'
         }
       }
       
